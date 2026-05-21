@@ -7,14 +7,15 @@ Readme should include:
 4) an overview of the organization of your code.
 
 ## Problem Overview 
+### Background/Importance 
+### Sample Outputs 
+--- 
+## Using this Repo
+### Directory Structure 
 
-## Sample Outputs 
+### Setting up Environment 
 
-## Directory Structure 
-
-## Setting up Environment 
-
-## Run the project 
+### Run the project 
 --- 
 ## Made by 
 Zoheb Akhtar, Abdurrahman Assaf, Zara Ceraj
