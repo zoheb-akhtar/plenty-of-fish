@@ -10,12 +10,12 @@ Run as a demo: `python -m src.environment.ocean` or `python src/environment/ocea
 """
 from __future__ import annotations
 
+import pygame
 import math
 import random
 import sys
 from typing import Tuple
 
-import pygame
 
 
 class Ocean:
