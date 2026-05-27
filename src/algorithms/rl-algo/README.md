@@ -1,6 +1,6 @@
 # RL algo (`rl-algo`)
 
-Hey team — this folder is the **reinforcement learning** side of the project. Right now it trains a shark on a small practice grid (`toy_env.py`). Later we plug the same brain into the real environment Abdurrahman builds.
+Hey guys this folder is the **reinforcement learning** side of the project. Right now it trains a shark on a small practice grid (`toy_env.py`). Later we plug the same brain into the real environment we will build.
 
 **Idea in one sentence:** each shark picks moves using a shared **Q-table** (what worked before in similar situations), and the table updates when sharks get rewards or die (especially from poison).
 
@@ -106,7 +106,7 @@ Right now training uses **one shark** in `toy_env`; multi-shark loop comes when 
 
 ---
 
-## Hooking up the real environment (Abdurrahman)
+## Hooking up the real environment
 
 We need the same contract `toy_env` already has:
 
@@ -140,12 +140,3 @@ GA will live in `genetic_algo.py` and handle breeding, genomes (aggression, caut
 - Wire GA + reproduction timer  
 - Pygame shows the same state (Zara) — training can stay headless  
 
----
-
-## Who to ping
-
-- **Env / fish / grid logic** → Abdurrahman (needs to match `obs` + `step` above)  
-- **Drawing** → Zara (`ocean.py` is separate from sim logic)  
-- **RL / Q-table / training** → Zoheb  
-
-Questions about a file? Open it top-to-bottom: `actions` → `toy_env` → `state` → `q_table` → `family_rl` → `train_headless`.
