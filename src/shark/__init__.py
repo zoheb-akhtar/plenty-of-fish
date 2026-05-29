@@ -6,10 +6,7 @@ from .traits import (
     TraitCategory,
     TraitSpec,
     color_rgb,
-    evolvable_bounds,
     evolvable_traits,
-    set_evolvable,
-    trait_names,
 )
 
 __all__ = [
@@ -18,8 +15,5 @@ __all__ = [
     "TraitCategory",
     "TraitSpec",
     "color_rgb",
-    "evolvable_bounds",
     "evolvable_traits",
-    "set_evolvable",
-    "trait_names",
 ]

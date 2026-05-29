@@ -1,12 +1,3 @@
-"""A concrete shark's genome.
-
-A :class:`SharkGenome` is one individual: a mapping of trait name -> value,
-backed by the trait registry in :mod:`shark.traits`. The genome owns its own
-gene mechanics (random init, crossover, mutation, GA vector round-trip) so the
-genetic algorithm can stay trait-agnostic -- it asks a genome for its evolvable
-genes and never hard-codes a trait name or bound.
-"""
-
 from __future__ import annotations
 
 import random
@@ -23,12 +14,10 @@ class SharkGenome:
     # --- constructors ------------------------------------------------------
     @classmethod
     def default(cls) -> "SharkGenome":
-        """A genome where every trait sits at its default value."""
         return cls({name: spec.default for name, spec in SHARK_TRAITS.items()})
 
     @classmethod
     def random(cls, rng: random.Random = random) -> "SharkGenome":
-        """A genome with every trait drawn uniformly at random from its range."""
         return cls({name: spec.random_value(rng) for name, spec in SHARK_TRAITS.items()})
 
     @classmethod
