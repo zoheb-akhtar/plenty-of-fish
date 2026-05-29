@@ -16,7 +16,11 @@ import random
 import sys
 from typing import Tuple
 
+<<<<<<< HEAD
 # used chat to build this quickly - for AI comment, will refine further later... 
+=======
+
+>>>>>>> 8cc10e695705d1379c239911c1d436df1cdec994
 
 class Ocean:
     def __init__(self, tiles_x: int, tiles_y: int, tile_size: int = 64, draw_grid: bool = True):
