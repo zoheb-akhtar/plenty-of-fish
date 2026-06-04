@@ -1,4 +1,5 @@
-"""Shark trait definitions for the evolution simulation.
+"""
+Shark trait definitions for the evolution simulation.
 
     Attributes per trait 
     ----------
