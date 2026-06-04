@@ -5,8 +5,9 @@ in a family read and write the *same* ``QTable`` (so a death-by-poison teaches
 the whole family). Observations are bucketed into discrete states by
 ``discretize`` before they ever touch the table.
 
-The real environment (``src.environment.world``) reuses ``FamilyRL`` unchanged:
-it only has to hand back the same observation dict ``ToyOcean`` already returns.
+The genetic algorithm reuses ``FamilyRL`` through ``src.simulation``: a genome's
+temperament biases which action the shared brain takes in ``ToyOcean``, and the
+reward it earns becomes that genome's fitness.
 """
 
 from .actions import Action

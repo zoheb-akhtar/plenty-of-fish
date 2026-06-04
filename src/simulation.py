@@ -1,100 +1,136 @@
-"""Glue layer: a family of sharks *living* in the ocean, scored for the GA.
+"""The bridge between the genetic algorithm and reinforcement learning.
 
-This is where the two algorithms meet. One generation is one **episode**:
+The two algorithms work on different timescales and this module joins them:
 
-    1. Build a ``World`` and drop the whole population in as a family.
-    2. Step every living shark each tick, choosing actions with the *shared*
-       ``FamilyRL`` brain and learning from the rewards (tabular Q-learning).
-    3. Score each shark by how well it actually did -- food eaten and time
-       survived -- and hand those fitnesses back to the GA.
+    * RL (``FamilyRL``) handles **within-life** decisions -- a shark learns, by
+      trial and error in ``ToyOcean``, which actions pay off in which states.
+    * The GA handles **who reproduces** -- it evolves shark genomes.
 
-The brain is created once and **persists across generations**: as bodies evolve,
-the family's collective behaviour keeps improving too. ``population_fitness``
-packages this up as the population-level fitness the GA calls each generation.
+They meet through behaviour. A genome doesn't change the Q-table; instead its
+temperament *biases which action the shark takes* (the rl-algo README's plan:
+"bias action choice with genome ... not inside the Q-update itself"). A cautious
+shark attacks less and rests more; a bold one attacks more -- which is great when
+the fish is safe and fatal when it's poisonous. A genome's fitness is simply the
+reward its biased behaviour earns, so the GA selects for temperaments that do
+well given what the shared brain has learned.
+
+The brain is created once and **persists across generations**, so behaviour and
+bodies improve together.
 """
 from __future__ import annotations
 
 import random
 
-from src.algorithms.rl_algo import Action, FamilyRL, discretize
-from src.environment.world import World
-from src.shark import SharkGenome
+from src.algorithms.rl_algo import NUM_ACTIONS, Action, FamilyRL, ToyOcean, discretize
+from src.algorithms.rl_algo.state import State
+from src.shark import SHARK_TRAITS, SharkGenome
 
-# Fitness weights: a meal is worth far more than a quiet step, but surviving
-# longer is still rewarded so a starving shark beats a poisoned one.
-FOOD_WEIGHT = 10.0
-SURVIVAL_WEIGHT = 0.1
+# How strongly temperament tilts the shark's choices, in Q-value units. ToyOcean
+# pays +25 for a safe meal and -100 for biting poison, so these nudges sway
+# genuinely close calls without overriding a hard-learned "don't eat poison".
+ATTACK_BIAS = 20.0   # boldness (low caution) -> bite more
+REST_BIAS = 6.0      # caution -> hang back and recover
 
 
-def run_episode(
-    world: World,
-    brain: FamilyRL,
-    genomes: list[SharkGenome],
-    steps: int,
-    learn: bool = True,
-) -> list[float]:
-    """Run one episode in ``world`` and return each shark's fitness.
+def _norm(name: str, value: float) -> float:
+    """Scale a trait to 0..1 using its declared range."""
+    spec = SHARK_TRAITS[name]
+    return (value - spec.min_value) / spec.span
 
-    With ``learn=True`` the shared Q-table is updated every step (training).
-    With ``learn=False`` the family just acts on what it already knows -- used
-    for the visual demo so the ocean shows learned behaviour, not exploration.
+
+def biased_action(
+    brain: FamilyRL, state: State, genome: SharkGenome, rng: random.Random
+) -> Action:
+    """Pick an action: explore like the brain would, else exploit Q nudged by genome.
+
+    The nudge lives entirely in *action selection*. The Q-update afterwards is
+    the plain Bellman update on whatever action was actually taken, so the brain
+    still learns the true value of moves -- the genome only colours the choice.
     """
-    world.reset(genomes)
+    if rng.random() < brain.epsilon:
+        return Action(rng.randrange(NUM_ACTIONS))
 
-    # Cache the current observation per shark so each tick is one transition.
-    obs = {sid: world.get_observation(sid) for sid in world.living_shark_ids()}
+    q = [brain.q.get(state, Action(i)) for i in range(NUM_ACTIONS)]
 
-    for _ in range(steps):
-        living = world.living_shark_ids()
-        if not living:
+    caution = _norm("caution", genome.caution)
+    boldness = _norm("aggression", genome.aggression) - caution
+    q[Action.ATTACK] += ATTACK_BIAS * boldness
+    q[Action.REST] += REST_BIAS * caution
+
+    return Action(max(range(NUM_ACTIONS), key=lambda i: q[i]))
+
+
+def run_life(
+    env: ToyOcean,
+    brain: FamilyRL,
+    genome: SharkGenome,
+    rng: random.Random,
+    max_steps: int = 200,
+    learn: bool = True,
+) -> float:
+    """Live one shark for up to ``max_steps`` and return the reward it earned.
+
+    With ``learn=True`` the shared Q-table is updated each step (training).
+    """
+    obs = env.reset()
+    state = discretize(obs)
+    total = 0.0
+
+    for _ in range(max_steps):
+        action = biased_action(brain, state, genome, rng)
+        obs, reward, done = env.step(action)
+        next_state = discretize(obs)
+        if learn:
+            brain.update(state, action, reward, next_state, done)
+        state = next_state
+        total += reward
+        if done:
             break
-        for sid in living:
-            state = discretize(obs[sid])
-            action = brain.select_action(state)
-            next_obs, reward, done = world.step(sid, action)
-            if learn:
-                brain.update(state, action, reward, discretize(next_obs), done)
-            obs[sid] = next_obs
 
-    if learn:
-        brain.decay_epsilon()  # one episode = one step down the exploration ramp
-
-    return [
-        FOOD_WEIGHT * s.food_eaten + SURVIVAL_WEIGHT * s.steps_survived
-        for s in world.sharks
-    ]
+    return total
 
 
 def population_fitness(
     genomes: list[SharkGenome],
     brain: FamilyRL,
     rng: random.Random,
-    width: int = 20,
-    height: int = 20,
-    steps: int = 150,
+    max_steps: int = 200,
+    lives_per_genome: int = 3,
 ) -> list[float]:
-    """Fitness function for the GA: score a whole population by simulation.
+    """Fitness function for the GA: score every genome by living it in ToyOcean.
 
-    A fresh ``World`` is built each generation (so geography doesn't bias the
-    run) but the ``brain`` and ``rng`` are shared, keeping learning and the
-    random stream continuous across generations.
+    Each genome lives a few times (exploration makes a single life noisy) and is
+    scored by its average reward. All lives feed the one shared brain, which
+    decays its exploration once per generation.
     """
-    world = World(width=width, height=height, rng=rng)
-    return run_episode(world, brain, genomes, steps=steps, learn=True)
+    env = ToyOcean()
+    fitnesses = [
+        sum(run_life(env, brain, genome, rng, max_steps) for _ in range(lives_per_genome))
+        / lives_per_genome
+        for genome in genomes
+    ]
+    brain.decay_epsilon()  # one generation = one step down the exploration ramp
+    return fitnesses
 
 
 if __name__ == "__main__":
-    # Watch a single family's average fitness climb as the shared brain learns,
-    # holding the genomes fixed so the gain is purely behavioural.
+    # Show the link in miniature: a bold genome vs. a cautious one, sharing a
+    # brain that has already learned ToyOcean. Boldness should out-eat caution
+    # here (few poison traps), but pay off less as poison density rises.
     rng = random.Random(0)
-    genomes = [SharkGenome.random_evolvable(rng) for _ in range(20)]
     brain = FamilyRL()
-    world = World(width=20, height=20, rng=rng)
+    env = ToyOcean()
 
-    for episode in range(1, 21):
-        fitnesses = run_episode(world, brain, genomes, steps=150)
-        avg = sum(fitnesses) / len(fitnesses)
-        print(
-            f"episode {episode:2d} | avg_fitness {avg:6.1f} | "
-            f"epsilon {brain.epsilon:.3f} | states {len(brain.q)}"
-        )
+    bold = SharkGenome.default()
+    bold.values["caution"] = 0.05
+    cautious = SharkGenome.default()
+    cautious.values["caution"] = 0.95
+
+    # Warm the shared brain up so the exploit branch has something to bias.
+    for _ in range(300):
+        run_life(env, brain, bold, rng)
+    brain.epsilon = brain.epsilon_min
+
+    for name, g in (("bold", bold), ("cautious", cautious)):
+        avg = sum(run_life(env, brain, g, rng, learn=False) for _ in range(50)) / 50
+        print(f"{name:9s} caution={g.caution:.2f} -> avg reward {avg:6.1f}")
