@@ -5,10 +5,9 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from actions import Action
-from family_rl import FamilyRL
-from state import discretize
-from toy_env import ToyOcean
+from .family_rl import FamilyRL
+from .state import discretize
+from .toy_env import ToyOcean
 
 EPISODES = 2000
 MAX_STEPS = 200

@@ -2,9 +2,9 @@
 
 import random
 
-from actions import Action
-from q_table import NUM_ACTIONS, QTable
-from state import State
+from .actions import Action
+from .q_table import NUM_ACTIONS, QTable
+from .state import State
 
 
 class FamilyRL:

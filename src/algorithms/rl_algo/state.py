@@ -47,8 +47,8 @@ def discretize(obs: dict[str, Any]) -> State:
 
 
 if __name__ == "__main__":
-    from actions import Action
-    from toy_env import ToyOcean
+    from .actions import Action
+    from .toy_env import ToyOcean
 
     env = ToyOcean()
     obs = env.reset()
