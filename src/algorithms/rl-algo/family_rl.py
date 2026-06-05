@@ -46,6 +46,7 @@ class FamilyRL:
             target = reward
         else:
             target = reward + self.gamma * self.q.max_q(next_state)
+
         new_q = current + self.alpha * (target - current)
         self.q.set(state, action, new_q)
 
