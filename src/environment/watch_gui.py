@@ -47,6 +47,10 @@ TEXT_DIM = (150, 160, 175)
 CELL_BG = (10, 52, 96)
 CELL_BORDER = (40, 46, 60)
 
+# The grid is a fixed viewport into the population: at most this many mini-oceans
+# are shown at once, regardless of how big the real population is.
+GRID_CAP = 12
+
 # Buttons (Metrics / Back).
 BTN_BG = (32, 54, 92)
 BTN_HOT = (46, 84, 140)
@@ -70,8 +74,13 @@ class WatchGUI:
         self.config = config
         pop = config.watch_population_size
         self.pop_size = pop if pop % 2 == 0 else pop + 1  # breed in pairs
+
+        # The whole population is simulated, but the grid only ever shows up to
+        # GRID_CAP of them: a random sample when the population is larger, and
+        # empty (dark blue) cells for the remainder when it is smaller.
         self.cols = config.watch_grid_cols
-        self.rows = math.ceil(self.pop_size / self.cols)
+        self.rows = math.ceil(GRID_CAP / self.cols)
+        self.view_rng = random.Random(config.seed)  # picks the shown sample; kept off the sim rng
 
         # Window: a cols x rows grid of square-ish mini-oceans below the HUD.
         cell = 230

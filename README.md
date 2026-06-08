@@ -1,21 +1,179 @@
-# Plenty of Fish - A Shark Evolution Simulation  
+# Plenty of Fish - A Shark Evolution Simulation
 
-Readme should include: 
-1) an overview of the problem, 
-2) instructions for end-users to set up an equivalent Python environment, 
-3) instructions to execute your code to reproduce your results, and 
-4) an overview of the organization of your code.
+A shark "family" that gets better at surviving in two ways at once: a **genetic
+algorithm (GA)** evolves shark *bodies* between lives, while **reinforcement
+learning (RL)** teaches a *shared brain* how to behave within a life. Bodies and
+behaviour improve together.
 
-## Problem Overview 
-### Background/Importance 
-### Sample Outputs 
---- 
+## Problem Overview
+
+A shark lives on a tile grid (the `Ocean`) scattered with safe and poisonous
+fish of different sizes. Each step it can move, attack, or rest; it spends energy
+to move and dies if it starves or bites poison while weak. The goal is a family
+of sharks whose **traits** (size, speed, caution) and **behaviour** (when to
+hunt vs. hang back) together earn the most reward.
+
+Two algorithms tackle this on two different timescales and meet through behaviour:
+
+- **RL — within-life decisions.** A `FamilyRL` brain runs tabular Q-learning
+  (epsilon-greedy, Bellman update). Every shark in the family reads and writes
+  the *same* Q-table, so one shark's fatal poison bite teaches the whole family.
+  Observations (energy + nearest fish) are bucketed into discrete states by
+  `discretize()` before they touch the table.
+- **GA — who reproduces.** The GA evolves genomes (tournament selection +
+  arithmetic crossover + Gaussian mutation, with elitism). Only the *evolvable*
+  traits — `size`, `speed`, `caution` — vary; the rest hold their defaults.
+
+The link is deliberate: **a genome never edits the Q-table.** Instead a shark's
+temperament *biases which action it picks* (`biased_action` in
+[`src/simulation.py`](src/simulation.py)) — a bold shark attacks more, a cautious
+one rests more — while the Q-update still learns the true value of whatever
+action was actually taken. A genome's fitness is simply the reward its biased
+behaviour earns, so the GA selects for temperaments that do well given what the
+shared brain has learned. The brain is created once and **persists across
+generations**, so over a run the bodies and the behaviour co-adapt.
+
+### Background/Importance
+
+Most projects pick one paradigm: evolve a controller, *or* train an agent. Here
+they run together, the way nature actually layers them — evolution shapes the
+body over generations, learning shapes behaviour within a single life. Keeping
+the genome out of the Q-update (it only colours action *selection*) is what lets
+the two coexist without one corrupting the other, and it mirrors the biology:
+genes bias temperament, experience does the fine-grained learning. The result is
+a compact, readable sandbox for studying how morphology and learned behaviour
+co-adapt — relevant to artificial life, evolutionary computation, and
+multi-agent RL.
+
+### Sample Outputs
+
+**Headless run** (`python -m src.main`) prints a per-generation table of the best
+shark's evolvable traits and its fitness (reward earned in the `Ocean`):
+
+```
+Gen |  Size | Speed | Caution | Fitness
+----+-------+-------+---------+--------
+  1 | 6.114 | 9.872 |   0.281 | 41.3333
+  2 | 6.114 | 9.872 |   0.281 | 47.0000
+...
+ 30 | 7.248 | 8.795 |   0.634 | 58.6667
+```
+
+…then writes the winner to [`results/best_genome.json`](results/best_genome.json):
+
+```json
+{
+  "size": 7.25,
+  "speed": 8.80,
+  "caution": 0.63,
+  "gestation_period": 12.0,
+  "aggression": 0.5,
+  "field_of_perception": 5.0,
+  "color_hue": 205.0
+}
+```
+
+Unless `--no-plots` is passed, matplotlib also shows each evolvable trait's
+trajectory and a best-vs-population-range fitness curve over the generations.
+
+**Watch GUI** (`--watch`) animates a grid of mini-oceans — one shark per cell,
+all sharing the evolving brain — with a live metrics panel (press **M**) plotting
+the same curves as the simulation runs. **Play GUI** (`--play`) lets you steer a
+single randomly-statted shark yourself. The standalone RL trainer also saves a
+learning curve to `src/algorithms/rl_algo/training_plot.png` and per-episode
+numbers to `training_log.csv`.
+
+---
+
 ## Using this Repo
-### Directory Structure 
 
-### Setting up Environment 
+### Directory Structure
 
-### Run the project 
---- 
-## Made by 
+```
+plenty-of-fish/
+├── Makefile                     # housekeeping: make clean / clean-results / help
+├── README.md
+├── results/
+│   └── best_genome.json         # winner of the most recent headless run
+└── src/
+    ├── main.py                  # entry point — wires GA + RL together (CLI below)
+    ├── simulation.py            # the bridge: genome biases action choice; fitness = reward
+    ├── algorithms/
+    │   ├── genetic_algo.py      # GA: population, selection, crossover, mutation, plots
+    │   └── rl_algo/             # reinforcement-learning "family brain"
+    │       ├── actions.py       # the 6 actions (up/down/left/right/attack/rest)
+    │       ├── state.py         # bucket an observation into a discrete Q-table key
+    │       ├── q_table.py       # the Q-value store
+    │       ├── family_rl.py     # epsilon-greedy tabular Q-learning agent (shared table)
+    │       ├── toy_env.py       # original practice grid (superseded by Ocean)
+    │       ├── train_headless.py# standalone RL trainer (plot + CSV)
+    │       └── README.md        # notes on the RL side
+    ├── environment/
+    │   ├── config.py            # EnvConfig — every Ocean/GUI knob in one place
+    │   ├── ocean.py             # the world: one shark foraging among sized fish
+    │   ├── gui.py               # Play mode (control one shark)
+    │   ├── watch_gui.py         # Watch mode (spectate the family evolve)
+    │   ├── seabed.py            # seabed tile renderer
+    │   ├── fish_drawing.py      # fish sprites
+    │   └── shark_drawing.py     # shark sprites
+    └── shark/
+        ├── traits.py            # the trait registry (ranges, defaults, evolvable flag)
+        ├── genome.py            # SharkGenome — trait values + GA operators
+        └── shark.py             # a living shark: age, breeding, lifecycle
+```
+
+### Setting up Environment
+
+Requires **Python 3.10+**. Create a virtual environment and install the two
+runtime dependencies (matplotlib for plots, pygame-ce for the GUIs):
+
+```bash
+# from the repo root
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+pip install --upgrade pip
+pip install matplotlib pygame-ce
+```
+
+> If you use [`uv`](https://docs.astral.sh/uv/) (this project was developed with
+> it): `uv venv && source .venv/bin/activate && uv pip install matplotlib pygame-ce`.
+
+The headless GA+RL run needs only matplotlib; `pygame-ce` is required for the
+`--watch` and `--play` GUIs.
+
+### Run the project
+
+Run everything as a module from the repo root (so the `src` package resolves):
+
+```bash
+python -m src.main                       # headless: evolve + learn, save best genome
+python -m src.main --generations 50 --no-plots
+python -m src.main --watch               # GUI: watch the family evolve (grid of mini-oceans)
+python -m src.main --play                # GUI: control one shark in its own ocean
+```
+
+Useful flags (see `python -m src.main --help`): `--population`, `--generations`,
+`--max-steps`, `--lives`, `--mutation-rate`, `--seed`, `--no-plots`.
+
+Each piece also runs on its own as a small demo:
+
+```bash
+python -m src.algorithms.genetic_algo            # GA against the analytical fitness only
+python -m src.simulation                         # bold vs. cautious shark, shared brain
+python -m src.environment.ocean                  # spawn an ocean, take a few steps
+python -m src.shark.shark                        # watch a pod age, breed, and die
+python src/algorithms/rl_algo/train_headless.py  # standalone RL training -> plot + CSV
+```
+
+Housekeeping via the Makefile (never touches `.venv/` or `.git/`):
+
+```bash
+make help            # list targets
+make clean           # remove caches / bytecode / OS junk (keeps results)
+make clean-results   # clear generated outputs in results/
+```
+
+---
+## Made by
 Zoheb Akhtar, Abdurrahman Assaf, Zara Ceraj

@@ -24,7 +24,7 @@ import random
 from src.algorithms.rl_algo import NUM_ACTIONS, Action, FamilyRL, discretize
 from src.algorithms.rl_algo.state import State
 from src.environment.ocean import Ocean
-from src.shark import SHARK_TRAITS, SharkGenome
+from src.shark import SHARK_TRAITS, Shark, SharkGenome, advance_cycle
 
 # How strongly temperament tilts the shark's choices, in Q-value units. ToyOcean
 # pays +25 for a safe meal and -100 for biting poison, so these nudges sway
@@ -114,6 +114,40 @@ def population_fitness(
         fitnesses.append(score)
     brain.decay_epsilon()  # one generation = one step down the exploration ramp
     return fitnesses
+
+
+def live_one_cycle(
+    population: list[Shark],
+    brain: FamilyRL,
+    rng: random.Random,
+    max_steps: int = 200,
+    mutation_rate: float = 0.0,
+) -> list[Shark]:
+    """Advance the living population by one birth cycle (one "year").
+
+    This is the lifecycle counterpart to ``population_fitness``: instead of just
+    scoring genomes, it lets each living shark *survive or die* in its own ocean,
+    then breeds and ages the survivors. The link to the Shark lifecycle:
+
+      1. Each living shark forages its own ocean for one life (the shared brain
+         learns from every step). A shark that dies there -- starves or bites
+         poison (``env.alive`` goes False) -- is marked dead, so it can't breed.
+      2. The survivors reproduce (one pup per two living sharks) and everyone
+         ages a year; any shark reaching ``MAX_AGE_YEARS`` dies of old age.
+
+    Returns the next population (survivors + this cycle's pups). Because only
+    sharks that survive their ocean get to breed, "good enough" temperaments
+    propagate and the weak are culled -- the population isn't clamped to a size.
+    """
+    for shark in population:
+        if not shark.alive:
+            continue
+        env = Ocean(genome=shark.genome, rng=rng)
+        run_life(env, brain, shark.genome, rng, max_steps)
+        if not env.alive:
+            shark.alive = False  # died foraging -> out of the gene pool this cycle
+    brain.decay_epsilon()  # one cycle = one step down the exploration ramp
+    return advance_cycle(population, rng, mutation_rate)
 
 
 if __name__ == "__main__":
