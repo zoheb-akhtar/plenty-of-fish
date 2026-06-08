@@ -129,12 +129,18 @@ class WatchGUI:
         for e in self.envs:
             e.reset()
         self.states = [discretize(e.observe()) for e in self.envs]
-        self.totals = [0.0] * self.pop_size
+        self.totals = [0.0] * len(population)
         self.step_in_life = 0
         self.sprites = [
             make_genome_shark_sprite(self.cell_tile, g.color(), e.size_norm)
             for g, e in zip(population, self.envs)
         ]
+        # Which population members fill the grid this generation (a fresh random
+        # sample when the population overflows the grid, else everyone).
+        if len(population) > GRID_CAP:
+            self.shown = sorted(self.view_rng.sample(range(len(population)), GRID_CAP))
+        else:
+            self.shown = list(range(len(population)))
 
     def _tick(self):
         """Advance every living shark one step (and learn); roll the generation when all are done."""
@@ -228,11 +234,20 @@ class WatchGUI:
     # --- rendering -----------------------------------------------------------
     def _draw(self):
         self.screen.fill(HUD_BG)
-        for i in range(self.pop_size):
-            cx = (i % self.cols) * self.cell_w
-            cy = HUD_H + (i // self.cols) * self.cell_h
-            self._draw_cell(i, cx, cy)
+        for cell in range(GRID_CAP):
+            cx = (cell % self.cols) * self.cell_w
+            cy = HUD_H + (cell // self.cols) * self.cell_h
+            if cell < len(self.shown):
+                self._draw_cell(self.shown[cell], cx, cy)
+            else:
+                self._draw_empty_cell(cx, cy)
         self._draw_hud()
+
+    def _draw_empty_cell(self, x0: int, y0: int):
+        """A vacant slot when the population is smaller than the grid: dark blue."""
+        cell = pygame.Rect(x0 + 1, y0 + 1, self.cell_w - 2, self.cell_h - 2)
+        pygame.draw.rect(self.screen, CELL_BG, cell)
+        pygame.draw.rect(self.screen, CELL_BORDER, cell, 1)
 
     def _draw_cell(self, i: int, x0: int, y0: int):
         env = self.envs[i]
@@ -358,8 +373,8 @@ class WatchGUI:
         return pygame.image.frombuffer(bytes(canvas.buffer_rgba()), (w, h), "RGBA")
 
 
-def run():
-    WatchGUI().run()
+def run(config: EnvConfig = DEFAULT_CONFIG):
+    WatchGUI(config).run()
 
 
 if __name__ == "__main__":

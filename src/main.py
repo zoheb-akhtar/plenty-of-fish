@@ -18,14 +18,20 @@ from __future__ import annotations
 import argparse
 import json
 import random
+from dataclasses import replace
 from pathlib import Path
 
 from src.algorithms.genetic_algo import fitness_function, genetic_algorithm
 from src.algorithms.rl_algo import FamilyRL
+from src.environment.config import DEFAULT_CONFIG
 from src.shark import SHARK_TRAITS, SharkGenome
 from src.simulation import population_fitness
 
 BEST_GENOME_PATH = Path(__file__).resolve().parent.parent / "results" / "best_genome.json"
+
+# --population is shared by both modes but they want different defaults, so the
+# flag defaults to None and each mode falls back to its own sensible size.
+HEADLESS_POPULATION = 30
 
 
 def _annealing_brain(generations: int) -> FamilyRL:
@@ -52,13 +58,17 @@ def main() -> None:
 
     if args.watch:
         from src.environment.watch_gui import run
-        run()
+        pop = args.population if args.population is not None else DEFAULT_CONFIG.watch_population_size
+        run(replace(DEFAULT_CONFIG,
+                    watch_population_size=pop,
+                    watch_mutation_rate=args.mutation_rate))
         return
     if args.play:
         from src.environment.gui import run
         run()
         return
 
+    population = args.population if args.population is not None else HEADLESS_POPULATION
     rng = random.Random(args.seed)
     brain = _annealing_brain(args.generations)
 
@@ -69,10 +79,10 @@ def main() -> None:
             max_steps=args.max_steps, lives_per_genome=args.lives,
         )
 
-    print(f"Evolving {args.population} sharks over {args.generations} generations, "
+    print(f"Evolving {population} sharks over {args.generations} generations, "
           f"scored by life in the Ocean env...\n")
     best = genetic_algorithm(
-        population_size=args.population,
+        population_size=population,
         generations=args.generations,
         mutation_rate=args.mutation_rate,
         seed=args.seed,
@@ -92,7 +102,8 @@ def main() -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Plenty of Fish - GA + RL shark evolution")
-    parser.add_argument("--population", type=int, default=30, help="sharks per generation (even)")
+    parser.add_argument("--population", type=int, default=None,
+                        help="sharks per generation (even); default 30 headless, 12 for --watch")
     parser.add_argument("--generations", type=int, default=30)
     parser.add_argument("--max-steps", type=int, default=200, help="steps in one shark's life")
     parser.add_argument("--lives", type=int, default=3, help="lives averaged per genome per gen")
