@@ -1,163 +1,233 @@
-"""Ocean background demo using pygame.
+"""The ocean world: one shark foraging among randomly-placed, sized fish.
 
-Features:
-- Adjustable grid tile size via `tile_size`.
-- Different shades of blue per tile (gradient + per-tile variation).
-- Basic visible viewport with camera movement (arrow keys / WASD).
-- Optional grid lines.
+Replaces the placeholder ``ToyOcean`` (``src/algorithms/rl_algo/toy_env.py``):
+fish spawn at random tiles every ``reset()`` and are deleted when eaten, and the
+shark's *traits* (from a :class:`~src.shark.SharkGenome`) drive the mechanics:
 
-Run as a demo: `python -m src.environment.ocean` or `python src/environment/ocean.py`
+  * size  -> which fish it can eat (bigger fish give more) + metabolic cost
+  * speed -> how many tiles a MOVE covers + metabolic cost
+  * field_of_perception -> how far it senses the nearest fish (its observation)
+
+Each shark in a family gets its OWN ``Ocean`` instance; they share only the
+brain (see ``src/simulation.py``). The observation keeps the exact shape
+``discretize()`` expects, so the RL code is unchanged.
 """
+
 from __future__ import annotations
 
-import pygame
-import math
+import os
 import random
 import sys
-from typing import Tuple
+from dataclasses import dataclass
+
+# Allow both ``-m src.environment.ocean`` and bare ``python src/environment/ocean.py``.
+if __package__ in (None, ""):
+    _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if _ROOT not in sys.path:
+        sys.path.insert(0, _ROOT)
+
+from src.algorithms.rl_algo.actions import Action  # leaf import -> no package cycle
+from src.environment.config import DEFAULT_CONFIG, EnvConfig
+from src.shark import SHARK_TRAITS, SharkGenome
+
+SIZE_NAMES = ("small", "medium", "large")
+_MOVES = (Action.UP, Action.DOWN, Action.LEFT, Action.RIGHT)
+_DELTA = {Action.UP: (0, -1), Action.DOWN: (0, 1), Action.LEFT: (-1, 0), Action.RIGHT: (1, 0)}
+
+
+@dataclass
+class Fish:
+    kind: str   # "safe" | "poisonous"
+    size: str   # "small" | "medium" | "large"
+    pos: tuple[int, int]
+
+
+def _norm(name: str, value: float) -> float:
+    """Scale a trait to 0..1 using its declared range (same idea as genetic_algo._norm)."""
+    spec = SHARK_TRAITS[name]
+    return (value - spec.min_value) / spec.span
+
+
+def _size_tier(size_value: float, thresholds: tuple[float, float]) -> int:
+    lo, hi = thresholds
+    if size_value < lo:
+        return 0
+    if size_value < hi:
+        return 1
+    return 2
+
 
 class Ocean:
-    def __init__(self, tiles_x: int, tiles_y: int, tile_size: int = 64, draw_grid: bool = True):
-        self.tiles_x = tiles_x
-        self.tiles_y = tiles_y
-        self.tile_size = tile_size
-        self.draw_grid = draw_grid
+    """Single-shark grid world. ``(x, y)`` with x rightward, y downward."""
 
-    @property
-    def width(self) -> int:
-        return self.tiles_x * self.tile_size
+    def __init__(
+        self,
+        config: EnvConfig = DEFAULT_CONFIG,
+        genome: SharkGenome | None = None,
+        rng: random.Random | None = None,
+    ):
+        self.config = config
+        self.genome = genome if genome is not None else SharkGenome.default()
+        self.rng = rng if rng is not None else random.Random(config.seed)
+        self.size = config.size
+        self._derive_traits()
 
-    @property
-    def height(self) -> int:
-        return self.tiles_y * self.tile_size
+        self.shark = config.shark_start
+        self.energy = config.start_energy
+        self.facing = Action.RIGHT
+        self.alive = True
+        self.eaten = 0
+        self.fishes: list[Fish] = []
+        self.done = False
 
-    def _tile_color(self, tx: int, ty: int) -> Tuple[int, int, int]:
-        """Return a blue shade for tile at tile coords (tx, ty).
-
-        Uses a vertical gradient (deeper at larger ty) plus a small deterministic
-        per-tile variation so neighboring tiles have slightly different blues.
-        """
-        # Base gradient from light to deep blue
-        t = ty / max(1, self.tiles_y - 1)
-        # gradient components
-        top_r, top_g, top_b = 20, 140, 200
-        bot_r, bot_g, bot_b = 0, 40, 120
-        r = int(top_r * (1 - t) + bot_r * t)
-        g = int(top_g * (1 - t) + bot_g * t)
-        b = int(top_b * (1 - t) + bot_b * t)
-
-        # deterministic per-tile jitter
-        rnd = random.Random((tx << 16) ^ ty)
-        jitter = rnd.randint(-12, 12)
-        g = max(0, min(255, g + jitter))
-        b = max(0, min(255, b + jitter // 2))
-        return (r, g, b)
-
-    def draw(self, surface: pygame.Surface, cam_x: int, cam_y: int) -> None:
-        """Draw the visible portion of the ocean onto `surface` using camera offset.
-
-        cam_x/cam_y are world pixel coordinates of the top-left of the viewport.
-        """
-        surf_w, surf_h = surface.get_size()
-
-        start_tx = max(0, cam_x // self.tile_size)
-        start_ty = max(0, cam_y // self.tile_size)
-        end_tx = min(self.tiles_x - 1, (cam_x + surf_w) // self.tile_size)
-        end_ty = min(self.tiles_y - 1, (cam_y + surf_h) // self.tile_size)
-
-        # draw tiles
-        for ty in range(start_ty, end_ty + 1):
-            for tx in range(start_tx, end_tx + 1):
-                color = self._tile_color(tx, ty)
-                rect = pygame.Rect(
-                    tx * self.tile_size - cam_x,
-                    ty * self.tile_size - cam_y,
-                    self.tile_size,
-                    self.tile_size,
-                )
-                surface.fill(color, rect)
-
-        # optional grid lines
-        if self.draw_grid:
-            # vertical lines
-            for tx in range(start_tx, end_tx + 2):
-                x = tx * self.tile_size - cam_x
-                pygame.draw.line(surface, (10, 10, 30), (x, 0), (x, surf_h), 1)
-            # horizontal lines
-            for ty in range(start_ty, end_ty + 2):
-                y = ty * self.tile_size - cam_y
-                pygame.draw.line(surface, (10, 10, 30), (0, y), (surf_w, y), 1)
-
-
-def run_demo(
-    viewport_size: Tuple[int, int] = (800, 600),
-    tiles_x: int = 120,
-    tiles_y: int = 80,
-    tile_size: int = 48,
-):
-    pygame.init()
-    pygame.display.set_caption("Ocean background demo")
-    screen = pygame.display.set_mode(viewport_size)
-    clock = pygame.time.Clock()
-
-    ocean = Ocean(tiles_x, tiles_y, tile_size=tile_size, draw_grid=True)
-
-    # camera is top-left pixel of viewport in world coords
-    cam_x = max(0, (ocean.width - viewport_size[0]) // 2)
-    cam_y = max(0, (ocean.height - viewport_size[1]) // 2)
-
-    speed = 800  # pixels per second
-
-    running = True
-    while running:
-        dt = clock.tick(60) / 1000.0
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-
-        keys = pygame.key.get_pressed()
-        dx = dy = 0
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            dx -= 1
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            dx += 1
-        if keys[pygame.K_UP] or keys[pygame.K_w]:
-            dy -= 1
-        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            dy += 1
-
-        # normalize diagonal movement
-        if dx != 0 and dy != 0:
-            nd = math.sqrt(2) / 2
-            dx *= nd
-            dy *= nd
-
-        cam_x += int(dx * speed * dt)
-        cam_y += int(dy * speed * dt)
-
-        # clamp camera to world bounds
-        cam_x = max(0, min(ocean.width - viewport_size[0], cam_x))
-        cam_y = max(0, min(ocean.height - viewport_size[1], cam_y))
-
-        # draw
-        ocean.draw(screen, cam_x, cam_y)
-
-        # small HUD
-        font = pygame.font.SysFont(None, 20)
-        text = font.render(
-            f"Cam: ({cam_x}, {cam_y})  Tile: {tile_size}px  World: {ocean.tiles_x}x{ocean.tiles_y}",
-            True,
-            (255, 255, 255),
+    # --- trait-derived parameters (computed once from the genome) -------------
+    def _derive_traits(self) -> None:
+        cfg, g = self.config, self.genome
+        self.size_norm = _norm("size", g.size)
+        self.speed_norm = _norm("speed", g.speed)
+        self.size_tier = _size_tier(g.size, cfg.size_tier_thresholds)
+        self.move_tiles = 1 + round(self.speed_norm * cfg.max_extra_move_tiles)
+        self.perception = (
+            max(1, round(g.field_of_perception)) if cfg.perception_uses_genome
+            else cfg.fixed_perception_radius
         )
-        # subtle drop shadow
-        screen.blit(text, (6, 6))
-        screen.blit(text, (5, 5))
+        # Metabolism mirrors genetic_algo's fitness term: 0.45*size^2 + 0.35*speed^2 (normalized).
+        metab = 0.45 * self.size_norm**2 + 0.35 * self.speed_norm**2
+        self.step_cost = cfg.base_move_cost + cfg.metab_scale * metab
 
-        pygame.display.flip()
+    # --- episode lifecycle ----------------------------------------------------
+    def reset(self) -> dict:
+        if self.config.seed is not None:
+            self.rng.seed(self.config.seed)
+        self.shark = self.config.shark_start
+        self.energy = self.config.start_energy
+        self.facing = Action.RIGHT
+        self.alive = True
+        self.eaten = 0
+        self.done = False
+        self.fishes = self._spawn_fish()
+        return self.observe()
 
-    pygame.quit()
+    def _spawn_fish(self) -> list[Fish]:
+        cfg = self.config
+        spec = [
+            ("safe", "small", cfg.num_safe_small),
+            ("safe", "medium", cfg.num_safe_medium),
+            ("safe", "large", cfg.num_safe_large),
+            ("poisonous", "small", cfg.num_poison_small),
+            ("poisonous", "medium", cfg.num_poison_medium),
+            ("poisonous", "large", cfg.num_poison_large),
+        ]
+        total = sum(n for _, _, n in spec)
+        free = [
+            (x, y)
+            for x in range(cfg.size)
+            for y in range(cfg.size)
+            if (x, y) != cfg.shark_start
+        ]
+        if total > len(free):
+            raise ValueError(
+                f"Cannot place {total} fish on {len(free)} free tiles (grid {cfg.size}x{cfg.size})."
+            )
+        positions = self.rng.sample(free, total)
+        fishes, i = [], 0
+        for kind, size, n in spec:
+            for _ in range(n):
+                fishes.append(Fish(kind, size, positions[i]))
+                i += 1
+        return fishes
+
+    def step(self, action: Action) -> tuple[dict, float, bool]:
+        """Advance one timestep. Returns ``(obs, reward, done)`` (done = shark died)."""
+        if self.done:
+            return self.observe(), 0.0, True
+
+        cfg = self.config
+        reward = cfg.step_penalty
+
+        if action in _MOVES:
+            self.facing = action
+            self._move(action)
+        elif action == Action.ATTACK:
+            reward = self._attack()  # may set self.done (poison)
+
+        if not self.done:  # poison death short-circuits the energy economy
+            if action == Action.REST:
+                self.energy = min(cfg.max_energy, self.energy + cfg.rest_energy_gain)
+            else:
+                self.energy -= self.step_cost
+            if self.energy <= 0:
+                self.energy = 0.0
+                reward = cfg.starve_penalty
+                self.alive = False
+                self.done = True
+
+        return self.observe(), reward, self.done
+
+    def _move(self, action: Action) -> None:
+        dx, dy = _DELTA[action]
+        x, y = self.shark
+        for _ in range(self.move_tiles):  # speed -> multi-tile, clamped at edges
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < self.size and 0 <= ny < self.size:
+                x, y = nx, ny
+            else:
+                break
+        self.shark = (x, y)
+
+    def _attack(self) -> float:
+        cfg = self.config
+        adjacent = [f for f in self.fishes if self._adjacent(f.pos)]
+        if any(f.kind == "poisonous" for f in adjacent):
+            # Biting poison is always fatal, regardless of size.
+            self.alive = False
+            self.done = True
+            return cfg.poison_penalty
+        edible = [
+            f for f in adjacent
+            if f.kind == "safe" and SIZE_NAMES.index(f.size) <= self.size_tier
+        ]
+        if edible:
+            f = edible[0]
+            tier = SIZE_NAMES.index(f.size)
+            self.energy = min(cfg.max_energy, self.energy + cfg.eat_energy_by_size[tier])
+            self.fishes.remove(f)
+            self.eaten += 1
+            return cfg.eat_reward_by_size[tier]
+        return cfg.step_penalty  # nothing edible adjacent (or fish too big): wasted attack
+
+    def _adjacent(self, pos: tuple[int, int]) -> bool:
+        sx, sy = self.shark
+        return abs(sx - pos[0]) + abs(sy - pos[1]) == 1
+
+    # --- observation (discretize-compatible) ----------------------------------
+    def observe(self) -> dict:
+        return {"energy": max(0.0, self.energy), "nearest_fish": self._nearest_fish()}
+
+    def _nearest_fish(self) -> dict:
+        sx, sy = self.shark
+        best, best_d = None, 10**9
+        for f in self.fishes:
+            d = abs(sx - f.pos[0]) + abs(sy - f.pos[1])
+            if d <= self.perception and d < best_d:  # only fish within sight
+                best, best_d = f, d
+        if best is None:
+            return {"exists": False, "type": None, "distance": 0, "size": None}
+        return {"exists": True, "type": best.kind, "distance": best_d, "size": best.size}
 
 
 if __name__ == "__main__":
-    # Default demo parameters — change these to control the grid size and world size.
-    run_demo(viewport_size=(1024, 768), tiles_x=140, tiles_y=100, tile_size=48)
+    env = Ocean()
+    env.reset()
+    print("layout A:", [(f.kind, f.size, f.pos) for f in env.fishes])
+    env.reset()
+    print("layout B:", [(f.kind, f.size, f.pos) for f in env.fishes], "(random each reset)")
+    print(
+        f"default shark: size_tier={env.size_tier} move_tiles={env.move_tiles} "
+        f"perception={env.perception} step_cost={env.step_cost:.4f}"
+    )
+    for action in [Action.RIGHT, Action.DOWN, Action.ATTACK]:
+        obs, reward, done = env.step(action)
+        print(f"{action.name:7s} shark {env.shark} reward {reward:6.1f} done {done} obs {obs['nearest_fish']}")
+        if done:
+            break

@@ -1,14 +1,17 @@
 """Plenty of Fish -- entry point that fits the GA and RL together.
 
 The genetic algorithm evolves shark genomes; a single shared reinforcement-
-learning brain learns how to behave in ``ToyOcean``; and each genome is scored
-by the reward its temperament earns once the brain has learned (see
-``src.simulation``). Bodies and behaviour improve together.
+learning brain learns how to behave in the ``Ocean`` env (each shark forages its
+own ocean); and each genome is scored by the reward its temperament earns once
+the brain has learned (see ``src.simulation``). Bodies and behaviour improve
+together.
 
 Run from the repo root:
 
-    python -m src.main                 # evolve + learn with sensible defaults
+    python -m src.main                 # headless: evolve + learn, save best genome
     python -m src.main --generations 50 --no-plots
+    python -m src.main --watch         # GUI: watch the family evolve (grid of mini-oceans)
+    python -m src.main --play          # GUI: control one shark in its own ocean
 """
 from __future__ import annotations
 
@@ -47,6 +50,15 @@ def _print_genome(genome: SharkGenome) -> None:
 def main() -> None:
     args = _build_parser().parse_args()
 
+    if args.watch:
+        from src.environment.watch_gui import run
+        run()
+        return
+    if args.play:
+        from src.environment.gui import run
+        run()
+        return
+
     rng = random.Random(args.seed)
     brain = _annealing_brain(args.generations)
 
@@ -58,7 +70,7 @@ def main() -> None:
         )
 
     print(f"Evolving {args.population} sharks over {args.generations} generations, "
-          f"scored by life in ToyOcean...\n")
+          f"scored by life in the Ocean env...\n")
     best = genetic_algorithm(
         population_size=args.population,
         generations=args.generations,
@@ -68,7 +80,7 @@ def main() -> None:
         population_fitness=score,
     )
 
-    print("\nBest shark found (judged by reward earned in ToyOcean):")
+    print("\nBest shark found (judged by reward earned in the Ocean env):")
     _print_genome(best)
     print(f"  analytical fitness    {fitness_function(best):.4f}")
     print(f"  brain: {len(brain.q)} states learned, epsilon {brain.epsilon:.3f}")
@@ -87,6 +99,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mutation-rate", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-plots", action="store_true", help="skip matplotlib output")
+    parser.add_argument("--watch", action="store_true", help="open the Watch GUI (family evolving)")
+    parser.add_argument("--play", action="store_true", help="open the Play GUI (control one shark)")
     return parser
 
 

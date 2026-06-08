@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import random
 
-from src.algorithms.rl_algo import NUM_ACTIONS, Action, FamilyRL, ToyOcean, discretize
+from src.algorithms.rl_algo import NUM_ACTIONS, Action, FamilyRL, discretize
 from src.algorithms.rl_algo.state import State
+from src.environment.ocean import Ocean
 from src.shark import SHARK_TRAITS, SharkGenome
 
 # How strongly temperament tilts the shark's choices, in Q-value units. ToyOcean
@@ -61,7 +62,7 @@ def biased_action(
 
 
 def run_life(
-    env: ToyOcean,
+    env: Ocean,
     brain: FamilyRL,
     genome: SharkGenome,
     rng: random.Random,
@@ -99,16 +100,18 @@ def population_fitness(
 ) -> list[float]:
     """Fitness function for the GA: score every genome by living it in ToyOcean.
 
-    Each genome lives a few times (exploration makes a single life noisy) and is
-    scored by its average reward. All lives feed the one shared brain, which
-    decays its exploration once per generation.
+    Each genome lives a few times (exploration makes a single life noisy) in its
+    OWN ocean and is scored by its average reward. All lives feed the one shared
+    brain, which decays its exploration once per generation.
     """
-    env = ToyOcean()
-    fitnesses = [
-        sum(run_life(env, brain, genome, rng, max_steps) for _ in range(lives_per_genome))
-        / lives_per_genome
-        for genome in genomes
-    ]
+    fitnesses: list[float] = []
+    for genome in genomes:
+        env = Ocean(genome=genome, rng=rng)  # each shark forages its own ocean
+        score = (
+            sum(run_life(env, brain, genome, rng, max_steps) for _ in range(lives_per_genome))
+            / lives_per_genome
+        )
+        fitnesses.append(score)
     brain.decay_epsilon()  # one generation = one step down the exploration ramp
     return fitnesses
 
@@ -119,18 +122,19 @@ if __name__ == "__main__":
     # here (few poison traps), but pay off less as poison density rises.
     rng = random.Random(0)
     brain = FamilyRL()
-    env = ToyOcean()
 
     bold = SharkGenome.default()
     bold.values["caution"] = 0.05
     cautious = SharkGenome.default()
     cautious.values["caution"] = 0.95
+    bold_env = Ocean(genome=bold, rng=rng)
+    cautious_env = Ocean(genome=cautious, rng=rng)
 
     # Warm the shared brain up so the exploit branch has something to bias.
     for _ in range(300):
-        run_life(env, brain, bold, rng)
+        run_life(bold_env, brain, bold, rng)
     brain.epsilon = brain.epsilon_min
 
-    for name, g in (("bold", bold), ("cautious", cautious)):
+    for name, g, env in (("bold", bold, bold_env), ("cautious", cautious, cautious_env)):
         avg = sum(run_life(env, brain, g, rng, learn=False) for _ in range(50)) / 50
         print(f"{name:9s} caution={g.caution:.2f} -> avg reward {avg:6.1f}")
