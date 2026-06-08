@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
+
 import matplotlib.pyplot as plt
 
 from src.shark import SHARK_TRAITS, SharkGenome, evolvable_traits
+
+# A population-level fitness: score every genome at once. Used to plug in the
+# simulation (see ``src.simulation``) where sharks share an ocean and a brain,
+# so they can't be scored one at a time like the analytical fitness below.
+PopulationFitness = Callable[[list[SharkGenome]], list[float]]
 
 # Structure follows https://www.datacamp.com/tutorial/genetic-algorithm-python
 # Used claude to integrate traits 
@@ -75,10 +82,21 @@ def genetic_algorithm(
     mutation_rate: float = 0.2,
     seed: int | None = None,
     show_plots: bool = True,
+    population_fitness: PopulationFitness | None = None,
 ) -> SharkGenome:
-    """Evolve a population of sharks and return the fittest found."""
+    """Evolve a population of sharks and return the fittest found.
+
+    By default each genome is scored by the analytical ``fitness_function``.
+    Pass ``population_fitness`` to score the whole population another way -- e.g.
+    by living in the ocean (``src.simulation.population_fitness``) -- which lets
+    the GA evolve bodies against an RL-driven simulation instead of a formula.
+    """
     if population_size % 2 != 0:
         raise ValueError("population_size must be even (sharks breed in pairs).")
+
+    score_population = population_fitness or (
+        lambda pop: [fitness_function(ind) for ind in pop]
+    )
 
     rng = random.Random(seed)
     population = create_initial_population(population_size, rng)
@@ -92,7 +110,7 @@ def genetic_algorithm(
     rows: list[list[str]] = []
 
     for _ in range(generations):
-        fitnesses = [fitness_function(ind) for ind in population]
+        fitnesses = score_population(population)
 
         best_idx = max(range(len(population)), key=lambda i: fitnesses[i])
         best_individual = population[best_idx]

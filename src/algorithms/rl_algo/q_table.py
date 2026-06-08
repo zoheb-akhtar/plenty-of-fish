@@ -2,8 +2,8 @@
 
 from collections import defaultdict
 
-from actions import Action
-from state import State
+from .actions import Action
+from .state import State
 
 NUM_ACTIONS = len(Action)
 
@@ -35,8 +35,8 @@ class QTable:
 
 
 if __name__ == "__main__":
-    from state import discretize
-    from toy_env import ToyOcean
+    from .state import discretize
+    from .toy_env import ToyOcean
 
     q = QTable()
     env = ToyOcean()

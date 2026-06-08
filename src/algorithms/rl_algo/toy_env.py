@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from actions import Action
+from .actions import Action
 
 # (type, (x, y)) — spread on default 10x10 grid, non-overlapping (shark starts at 0,0)
 INITIAL_FISHES: list[tuple[str, tuple[int, int]]] = [
@@ -123,7 +123,7 @@ class ToyOcean:
 
 
 if __name__ == "__main__":
-    from state import discretize
+    from .state import discretize
 
     env = ToyOcean()
     obs = env.reset()
