@@ -123,7 +123,7 @@ def plot_training(
     axes[0].axhline(0, color="gray", linestyle="--", linewidth=0.8)
     axes[0].set_ylabel("Total reward")
     axes[0].legend(loc="lower right")
-    axes[0].set_title("Q-learning on ToyOcean")
+    axes[0].set_title("Q-learning on Ocean")
 
     axes[1].plot(episodes, steps, color="seagreen", alpha=0.7)
     axes[1].set_ylabel("Steps per episode")

@@ -177,14 +177,14 @@ class Ocean:
 
     def _attack(self) -> float:
         cfg = self.config
-        adjacent = [f for f in self.fishes if self._adjacent(f.pos)]
-        if any(f.kind == "poisonous" for f in adjacent):
+        reachable = [f for f in self.fishes if self.in_reach(f.pos)]
+        if any(f.kind == "poisonous" for f in reachable):
             # Biting poison is always fatal, regardless of size.
             self.alive = False
             self.done = True
             return cfg.poison_penalty
         edible = [
-            f for f in adjacent
+            f for f in reachable
             if f.kind == "safe" and SIZE_NAMES.index(f.size) <= self.size_tier
         ]
         if edible:
@@ -194,11 +194,12 @@ class Ocean:
             self.fishes.remove(f)
             self.eaten += 1
             return cfg.eat_reward_by_size[tier]
-        return cfg.step_penalty  # nothing edible adjacent (or fish too big): wasted attack
+        return cfg.step_penalty  # nothing edible in reach (or fish too big): wasted attack
 
-    def _adjacent(self, pos: tuple[int, int]) -> bool:
+    def in_reach(self, pos: tuple[int, int]) -> bool:
+        """Can the shark attack a fish here? On its own tile or one step away."""
         sx, sy = self.shark
-        return abs(sx - pos[0]) + abs(sy - pos[1]) == 1
+        return abs(sx - pos[0]) + abs(sy - pos[1]) <= 1
 
     # --- observation (discretize-compatible) ----------------------------------
     def observe(self) -> dict:
@@ -212,8 +213,15 @@ class Ocean:
             if d <= self.perception and d < best_d:  # only fish within sight
                 best, best_d = f, d
         if best is None:
-            return {"exists": False, "type": None, "distance": 0, "size": None}
-        return {"exists": True, "type": best.kind, "distance": best_d, "size": best.size}
+            return {"exists": False, "type": None, "distance": 0, "size": None, "dx": 0, "dy": 0}
+        return {
+            "exists": True,
+            "type": best.kind,
+            "distance": best_d,
+            "size": best.size,
+            "dx": best.pos[0] - sx,  # signed offset to the fish -> direction bucket
+            "dy": best.pos[1] - sy,
+        }
 
 
 if __name__ == "__main__":

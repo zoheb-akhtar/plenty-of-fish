@@ -98,7 +98,7 @@ def population_fitness(
     max_steps: int = 200,
     lives_per_genome: int = 3,
 ) -> list[float]:
-    """Fitness function for the GA: score every genome by living it in ToyOcean.
+    """Fitness function for the GA: score every genome by living it in its own Ocean.
 
     Each genome lives a few times (exploration makes a single life noisy) in its
     OWN ocean and is scored by its average reward. All lives feed the one shared

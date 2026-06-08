@@ -1,4 +1,4 @@
-"""Shark sprite for the GridOcean GUI.
+"""Shark sprites for the ocean GUIs.
 
 Builds a right-facing shark surface once; the GUI rotates it to match the
 shark's current facing before blitting.

@@ -145,7 +145,7 @@ class PlayGUI:
 
         for f in self.env.fishes:
             fc = self._center(*f.pos)
-            if self.env._adjacent(f.pos):
+            if self.env.in_reach(f.pos):
                 pygame.draw.circle(play, HIGHLIGHT, fc, int(self.tile * 0.42), 2)
             draw_fish(play, f.kind, fc, self.tile, size=f.size)
 

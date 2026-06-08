@@ -1,4 +1,4 @@
-"""Fish sprites for the GridOcean GUI.
+"""Fish sprites for the ocean GUIs.
 
 Safe fish are green; poisonous fish are purple and carry a ``!`` marker.
 """
