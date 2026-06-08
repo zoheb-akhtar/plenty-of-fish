@@ -43,10 +43,11 @@ class EnvConfig:
     base_move_cost: float = 0.015   # baseline energy burned on any non-REST action
     metab_scale: float = 0.03       # scales the size/speed metabolism term (see ocean.py)
     rest_energy_gain: float = 0.05
+    tired_energy: float = 0.33      # at/below this the shark is "tired" (matches the "low" state bucket)
 
     # --- rewards / penalties --------------------------------------------------
     step_penalty: float = -0.1
-    poison_penalty: float = -100.0
+    poison_penalty: float = -50.0
     starve_penalty: float = -50.0
 
     # --- movement (speed trait -> tiles travelled per MOVE action) ------------

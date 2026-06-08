@@ -178,10 +178,18 @@ class Ocean:
     def _attack(self) -> float:
         cfg = self.config
         reachable = [f for f in self.fishes if self.in_reach(f.pos)]
-        if any(f.kind == "poisonous" for f in reachable):
-            # Biting poison is always fatal, regardless of size.
-            self.alive = False
-            self.done = True
+        poison = next((f for f in reachable if f.kind == "poisonous"), None)
+        if poison is not None:
+            # Eating poison halves the shark's health. It survives the bite unless
+            # it was already tired (low energy) or has gorged on 2+ fish, in which
+            # case the poison finishes it off.
+            fatal = self.energy <= cfg.tired_energy or self.eaten >= 2
+            self.energy *= 0.5
+            self.fishes.remove(poison)
+            self.eaten += 1
+            if fatal:
+                self.alive = False
+                self.done = True
             return cfg.poison_penalty
         edible = [
             f for f in reachable
