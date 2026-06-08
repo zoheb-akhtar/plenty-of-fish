@@ -31,7 +31,7 @@ BEST_GENOME_PATH = Path(__file__).resolve().parent.parent / "results" / "best_ge
 
 # --population is shared by both modes but they want different defaults, so the
 # flag defaults to None and each mode falls back to its own sensible size.
-HEADLESS_POPULATION = 30
+DEFAULT_POPULATION = 30
 
 
 def _annealing_brain(generations: int) -> FamilyRL:
@@ -68,7 +68,7 @@ def main() -> None:
         run()
         return
 
-    population = args.population if args.population is not None else HEADLESS_POPULATION
+    population = args.population if args.population is not None else DEFAULT_POPULATION
     rng = random.Random(args.seed)
     brain = _annealing_brain(args.generations)
 

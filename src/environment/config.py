@@ -63,11 +63,21 @@ class EnvConfig:
     max_steps: int = 300            # per-life step cap
 
     # --- watch mode (the evolving family) -------------------------------------
-    watch_population_size: int = 12   # kept even (sharks breed in pairs)
+    watch_population_size: int = 12   # founding pod size (kept even: sharks breed in pairs)
     watch_grid_cols: int = 4
     watch_mutation_rate: float = 0.2
     watch_tick_interval: float = 0.05  # seconds between world steps (fast, to watch evolution)
     watch_max_steps: int = 80          # per-life cap inside Watch (short, so generations turn over)
+
+    # --- watch mode: shark lifecycle (age, reproduction, death) ---------------
+    # The pod grows freely (one pup per two living sharks each cycle) and isn't
+    # culled until it exceeds the carrying capacity, where overcrowding randomly
+    # thins it. The grid only animates ``display_slots`` of them as a window into
+    # the larger population; the rest forage headlessly each cycle.
+    watch_display_slots: int = 12      # mini-oceans shown on screen (4 cols x 3 rows)
+    watch_carrying_capacity: int = 100  # random-cull overcrowding above this many sharks
+    watch_brain_warmup_lives: int = 400  # headless lives to teach the brain before the pod lives
+                                         # (a cold brain dies foraging and the founding pod goes extinct)
 
 
 #: The config used when none is supplied.

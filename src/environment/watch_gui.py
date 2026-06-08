@@ -1,17 +1,26 @@
-"""Watch mode: spectate a shark family evolve.
+"""Watch mode: spectate a shark colony live, breed, age, and die.
 
-A small population of sharks each forage in their OWN ocean (a grid of
-mini-oceans), all sharing one ``FamilyRL`` brain. As you watch:
+A colony of sharks each forage in their OWN ocean (a grid of mini-oceans), all
+sharing one ``FamilyRL`` brain. Each cycle ("year") is one shark lifetime of
+foraging followed by the :mod:`src.shark.shark` lifecycle:
 
-  * the brain learns every step (tabular Q-learning), and
-  * between generations the genetic algorithm breeds the next family
-    (tournament selection + crossover + mutation, with elitism).
+  * the brain learns every step (tabular Q-learning);
+  * a shark that dies foraging (starves or bites poison) is out of the gene pool;
+  * the survivors breed -- **one pup per two living sharks** -- and everyone ages
+    a year, dying of old age at ``MAX_AGE_YEARS`` (15 cycles).
 
-So both the bodies (traits) and the shared behaviour improve over time. This is
-the animated version of ``genetic_algorithm(..., population_fitness=...)``.
+The pod grows or shrinks on its own merits -- there's no fixed size, only a
+carrying capacity that randomly thins overcrowding. The whole colony is
+simulated, but the grid is a fixed viewport that only ever shows up to
+``watch_display_slots`` of them (a random sample when the pod is larger); the HUD
+reports the true population.
+
+A cold brain would kill the founding pod before it learns anything, so the brain
+is warmed headlessly at startup (``watch_brain_warmup_lives``) -- you then watch
+a *competent* colony play out its lifecycle.
 
 Run:  python -m src.environment.watch_gui   (or python src/environment/watch_gui.py)
-Controls: Space pause/resume · Q/Esc quit.
+Controls: Space pause/resume · M metrics · Q/Esc quit.
 """
 
 from __future__ import annotations
@@ -30,26 +39,23 @@ if __package__ in (None, ""):
     if _ROOT not in sys.path:
         sys.path.insert(0, _ROOT)
 
-from src.algorithms.genetic_algo import create_initial_population, selection
+from src.algorithms.genetic_algo import create_initial_population
 from src.algorithms.rl_algo import FamilyRL, discretize
 from src.environment.config import DEFAULT_CONFIG, EnvConfig
 from src.environment.fish_drawing import draw_fish
 from src.environment.gui import FACING_ANGLE  # reuse the rotation map
 from src.environment.ocean import Ocean
 from src.environment.shark_drawing import make_genome_shark_sprite
-from src.shark import SHARK_TRAITS, SharkGenome, evolvable_traits
-from src.simulation import biased_action
+from src.shark import MAX_AGE_YEARS, SHARK_TRAITS, Shark, SharkGenome, evolvable_traits, reproduce
+from src.simulation import biased_action, run_life
 
-HUD_H = 64
+HUD_H = 84
 HUD_BG = (12, 16, 28)
 TEXT = (230, 236, 245)
 TEXT_DIM = (150, 160, 175)
+TEXT_WARN = (235, 170, 90)
 CELL_BG = (10, 52, 96)
 CELL_BORDER = (40, 46, 60)
-
-# The grid is a fixed viewport into the population: at most this many mini-oceans
-# are shown at once, regardless of how big the real population is.
-GRID_CAP = 12
 
 # Buttons (Metrics / Back).
 BTN_BG = (32, 54, 92)
@@ -72,14 +78,13 @@ PLOT_TRAIT = "#ff9d5c"
 class WatchGUI:
     def __init__(self, config: EnvConfig = DEFAULT_CONFIG):
         self.config = config
-        pop = config.watch_population_size
-        self.pop_size = pop if pop % 2 == 0 else pop + 1  # breed in pairs
 
-        # The whole population is simulated, but the grid only ever shows up to
-        # GRID_CAP of them: a random sample when the population is larger, and
+        # The whole colony is simulated, but the grid only ever shows up to
+        # ``slots`` of them: a random sample when the population is larger, and
         # empty (dark blue) cells for the remainder when it is smaller.
+        self.slots = config.watch_display_slots
         self.cols = config.watch_grid_cols
-        self.rows = math.ceil(GRID_CAP / self.cols)
+        self.rows = math.ceil(self.slots / self.cols)
         self.view_rng = random.Random(config.seed)  # picks the shown sample; kept off the sim rng
 
         # Window: a cols x rows grid of square-ish mini-oceans below the HUD.
@@ -91,7 +96,7 @@ class WatchGUI:
         self.height = HUD_H + self.rows * self.cell_h
 
         pygame.init()
-        pygame.display.set_caption("Plenty of Fish — Watch the family evolve")
+        pygame.display.set_caption("Plenty of Fish — Watch the colony live & breed")
         self.screen = pygame.display.set_mode((self.width, self.height))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont(None, 20)
@@ -99,94 +104,144 @@ class WatchGUI:
 
         self.rng = random.Random(config.seed)
         self.brain = FamilyRL()
-        self.generation = 0
+        self.cycle = 0
+        self.paused = False
+        self.extinct = False
         self.best_fitness = float("nan")
         self.avg_fitness = float("nan")
-        self.paused = False
+        # Per-cycle lifecycle tallies for the HUD.
+        self.pop_total = 0
+        self.births = self.forage_deaths = self.oldage_deaths = self.culled = 0
 
         # View state: "watch" (the grid) or "metrics" (the live graphs).
         self.view = "watch"
-        self.metrics_btn = pygame.Rect(self.width - 132, 14, 118, 32)
-        self.back_btn = pygame.Rect(14, 14, 96, 32)
+        self.metrics_btn = pygame.Rect(self.width - 132, 12, 118, 30)
+        self.back_btn = pygame.Rect(14, 12, 96, 30)
 
-        # Per-generation history that the metrics graphs plot.
+        # Per-cycle history that the metrics graphs plot.
         self.genes = evolvable_traits()
         self.best_hist: list[float] = []
         self.avg_hist: list[float] = []
         self.min_hist: list[float] = []
         self.max_hist: list[float] = []
         self.trait_hist: dict[str, list[float]] = {g: [] for g in self.genes}
-        # Cache the rendered figure; re-render only when a new generation lands.
+        # Cache the rendered figure; re-render only when a new cycle lands.
         self._metrics_surf: pygame.Surface | None = None
         self._metrics_cached_gen = -1
 
-        self._start_generation(create_initial_population(self.pop_size, self.rng))
+        self._warmup_brain(config.watch_brain_warmup_lives)
 
-    # --- generation lifecycle ------------------------------------------------
-    def _start_generation(self, population: list[SharkGenome]):
+        # Founding pod: random ages 0..14 so old-age deaths show up from the start
+        # (not only after the first 15 cycles), alongside foraging deaths.
+        genomes = create_initial_population(config.watch_population_size, self.rng)
+        founding = [Shark(g, age=self.rng.randrange(MAX_AGE_YEARS)) for g in genomes]
+        self._start_cycle(founding)
+
+    def _warmup_brain(self, lives: int) -> None:
+        """Teach the shared brain on a default shark so the founding pod can survive.
+
+        Without this the cold (fully exploring) brain dies foraging almost every
+        time and the colony goes extinct in a cycle or two. After warming we drop
+        exploration low so behaviour is competent but not frozen.
+        """
+        if lives <= 0:
+            return
+        warm = SharkGenome.default()
+        env = Ocean(self.config, genome=warm, rng=self.rng)
+        for _ in range(lives):
+            run_life(env, self.brain, warm, self.rng, self.config.watch_max_steps)
+        self.brain.epsilon = max(self.brain.epsilon_min, 0.1)
+
+    # --- cycle lifecycle -----------------------------------------------------
+    def _start_cycle(self, population: list[Shark]):
+        """Begin a birth cycle: give every shark an ocean and pick the on-screen window."""
         self.population = population
-        self.envs = [Ocean(self.config, genome=g, rng=self.rng) for g in population]
+        self.pop_total = len(population)
+        self.envs = [Ocean(self.config, genome=s.genome, rng=self.rng) for s in population]
         for e in self.envs:
             e.reset()
         self.states = [discretize(e.observe()) for e in self.envs]
         self.totals = [0.0] * len(population)
         self.step_in_life = 0
         self.sprites = [
-            make_genome_shark_sprite(self.cell_tile, g.color(), e.size_norm)
-            for g, e in zip(population, self.envs)
+            make_genome_shark_sprite(self.cell_tile, s.genome.color(), e.size_norm)
+            for s, e in zip(population, self.envs)
         ]
-        # Which population members fill the grid this generation (a fresh random
-        # sample when the population overflows the grid, else everyone).
-        if len(population) > GRID_CAP:
-            self.shown = sorted(self.view_rng.sample(range(len(population)), GRID_CAP))
+        # Which population members fill the grid this cycle (a fresh random sample
+        # when the population overflows the grid, else everyone).
+        if len(population) > self.slots:
+            self.shown = sorted(self.view_rng.sample(range(len(population)), self.slots))
         else:
             self.shown = list(range(len(population)))
 
     def _tick(self):
-        """Advance every living shark one step (and learn); roll the generation when all are done."""
+        """Advance every living shark one foraging step (and learn); roll the cycle when all finish."""
+        if self.extinct:
+            return
         all_done = True
         for i, env in enumerate(self.envs):
             if env.done:
                 continue
             all_done = False
-            action = biased_action(self.brain, self.states[i], self.population[i], self.rng)
+            action = biased_action(self.brain, self.states[i], self.population[i].genome, self.rng)
             obs, reward, done = env.step(action)
             next_state = discretize(obs)
             self.brain.update(self.states[i], action, reward, next_state, done)
             self.states[i] = next_state
             self.totals[i] += reward
-            if not env.fishes:  # ate everything -> that life is over
+            if not env.fishes:  # ate everything -> that life is over (survived)
                 env.done = True
         self.step_in_life += 1
         if all_done or self.step_in_life >= self.config.watch_max_steps:
-            self._end_generation()
+            self._end_cycle()
 
-    def _end_generation(self):
+    def _end_cycle(self):
+        """Record stats, resolve foraging deaths, breed survivors, age the colony, cull overcrowding."""
         fitnesses = list(self.totals)
         self.best_fitness = max(fitnesses)
         self.avg_fitness = sum(fitnesses) / len(fitnesses)
         best_idx = max(range(len(fitnesses)), key=lambda i: fitnesses[i])
-        best_genome = self.population[best_idx]
+        best_shark = self.population[best_idx]
 
-        # Record this generation's stats so the metrics graphs can plot them.
+        # Record this cycle's stats so the metrics graphs can plot them.
         self.best_hist.append(self.best_fitness)
         self.avg_hist.append(self.avg_fitness)
         self.min_hist.append(min(fitnesses))
         self.max_hist.append(max(fitnesses))
         for gene in self.genes:
-            self.trait_hist[gene].append(best_genome[gene])
+            self.trait_hist[gene].append(best_shark.genome[gene])
 
-        breeders = selection(self.population, fitnesses, self.rng)
-        nxt: list[SharkGenome] = []
-        for i in range(0, len(breeders), 2):
-            c1, c2 = SharkGenome.crossover(breeders[i], breeders[i + 1], self.rng)
-            nxt.append(c1.mutate(self.config.watch_mutation_rate, self.rng))
-            nxt.append(c2.mutate(self.config.watch_mutation_rate, self.rng))
-        nxt[0] = best_genome  # elitism: carry the best body over unchanged
+        # A shark that died foraging (env.alive False) is out of the gene pool.
+        for shark, env in zip(self.population, self.envs):
+            if not env.alive:
+                shark.alive = False
+
+        # Lifecycle: living breed (1 pup / 2 sharks), then everyone ages a year.
+        survived_forage = [s for s in self.population if s.alive]
+        pups = reproduce(self.population, self.rng, self.config.watch_mutation_rate)
+        for shark in self.population:
+            shark.grow_older()
+        survivors = [s for s in self.population if s.alive]
+        next_pop = survivors + pups
+
+        # Carrying capacity: overcrowding thins the pod at random (no fitness bias).
+        cap = self.config.watch_carrying_capacity
+        self.culled = max(0, len(next_pop) - cap)
+        if self.culled:
+            next_pop = self.view_rng.sample(next_pop, cap)
+
+        # Tally for the HUD.
+        self.births = len(pups)
+        self.forage_deaths = len(self.population) - len(survived_forage)
+        self.oldage_deaths = len(survived_forage) - len(survivors)
 
         self.brain.decay_epsilon()
-        self.generation += 1
-        self._start_generation(nxt)
+        self.cycle += 1
+        if not next_pop:
+            self.extinct = True
+            self.pop_total = 0
+            return
+        self._start_cycle(next_pop)
 
     # --- loop ----------------------------------------------------------------
     def run(self):
@@ -213,7 +268,7 @@ class WatchGUI:
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     self._handle_click(event.pos)
             # The simulation keeps running in either view, so the graphs update live.
-            if not self.paused:
+            if not self.paused and not self.extinct:
                 acc += dt
                 if acc >= self.config.watch_tick_interval:
                     acc = 0.0
@@ -234,7 +289,7 @@ class WatchGUI:
     # --- rendering -----------------------------------------------------------
     def _draw(self):
         self.screen.fill(HUD_BG)
-        for cell in range(GRID_CAP):
+        for cell in range(self.slots):
             cx = (cell % self.cols) * self.cell_w
             cy = HUD_H + (cell // self.cols) * self.cell_h
             if cell < len(self.shown):
@@ -250,7 +305,7 @@ class WatchGUI:
         pygame.draw.rect(self.screen, CELL_BORDER, cell, 1)
 
     def _draw_cell(self, i: int, x0: int, y0: int):
-        env = self.envs[i]
+        shark, env = self.population[i], self.envs[i]
         cell = pygame.Rect(x0 + 1, y0 + 1, self.cell_w - 2, self.cell_h - 2)
         pygame.draw.rect(self.screen, CELL_BG, cell)
 
@@ -272,23 +327,38 @@ class WatchGUI:
             veil.fill((0, 0, 0, 120))
             self.screen.blit(veil, cell.topleft)
 
-        tag = f"#{i}  r={self.totals[i]:.0f}  ate={env.eaten}" + ("  x" if env.done else "")
-        self.screen.blit(self.small.render(tag, True, TEXT), (x0 + 5, y0 + 4))
+        dead = not env.alive
+        tag = f"#{i}  age {shark.age}/{MAX_AGE_YEARS}  r={self.totals[i]:.0f}  ate={env.eaten}"
+        if dead:
+            tag += "  DIED"
+        self.screen.blit(self.small.render(tag, True, TEXT_WARN if dead else TEXT), (x0 + 5, y0 + 4))
         pygame.draw.rect(self.screen, CELL_BORDER, cell, 1)
 
     def _draw_hud(self):
         best = "—" if math.isnan(self.best_fitness) else f"{self.best_fitness:6.1f}"
         avg = "—" if math.isnan(self.avg_fitness) else f"{self.avg_fitness:6.1f}"
         line1 = (
-            f"Generation {self.generation}   Population {self.pop_size}   "
-            f"Best {best}   Avg {avg}   "
+            f"Cycle {self.cycle}   Population {self.pop_total}   Best {best}   Avg {avg}   "
             f"epsilon {self.brain.epsilon:.3f}   Q-states {len(self.brain.q)}"
         )
-        self.screen.blit(self.font.render(line1, True, TEXT), (12, 10))
-        line2 = "Each shark forages its own ocean; all share one evolving brain.  Space pause · M metrics · Q quit"
-        if self.paused:
-            line2 += "   [PAUSED]"
-        self.screen.blit(self.small.render(line2, True, TEXT_DIM), (12, 38))
+        self.screen.blit(self.font.render(line1, True, TEXT), (12, 8))
+
+        deaths = f"-{self.forage_deaths} foraging   -{self.oldage_deaths} old age"
+        if self.culled:
+            deaths += f"   -{self.culled} overcrowding"
+        line2 = f"last cycle:  +{self.births} born   {deaths}"
+        self.screen.blit(self.small.render(line2, True, TEXT_DIM), (12, 32))
+
+        showing = min(len(self.shown), self.slots)
+        line3 = (
+            f"Showing {showing} of {self.pop_total}.  Each forages its own ocean; all share one brain.  "
+            "Space pause · M metrics · Q quit"
+        )
+        if self.extinct:
+            line3 = "COLONY EXTINCT — every shark died.  Q quit"
+        elif self.paused:
+            line3 += "   [PAUSED]"
+        self.screen.blit(self.small.render(line3, True, TEXT_DIM), (12, 54))
         self._draw_button(self.metrics_btn, "Metrics >")
 
     # --- buttons / metrics view ----------------------------------------------
@@ -303,27 +373,27 @@ class WatchGUI:
         self.screen.fill(HUD_BG)
         self._draw_button(self.back_btn, "< Back")
         title = self.font.render(
-            f"Metrics · generation {self.generation} · population {self.pop_size}", True, TEXT
+            f"Metrics · cycle {self.cycle} · population {self.pop_total}", True, TEXT
         )
-        self.screen.blit(title, (self.back_btn.right + 18, 20))
+        self.screen.blit(title, (self.back_btn.right + 18, 18))
 
         top = HUD_H
         area_w, area_h = self.width, self.height - top
         if not self.best_hist:
             msg = self.small.render(
-                "Collecting data — the first generation is still running.", True, TEXT_DIM
+                "Collecting data — the first cycle is still running.", True, TEXT_DIM
             )
             self.screen.blit(msg, msg.get_rect(center=(self.width // 2, top + area_h // 2)))
             return
 
-        # Re-render the figure only when a new generation has been recorded.
+        # Re-render the figure only when a new cycle has been recorded.
         if self._metrics_surf is None or self._metrics_cached_gen != len(self.best_hist):
             self._metrics_surf = self._render_metrics_figure(area_w, area_h)
             self._metrics_cached_gen = len(self.best_hist)
         self.screen.blit(self._metrics_surf, (0, top))
 
     def _render_metrics_figure(self, px_w: int, px_h: int) -> pygame.Surface:
-        """Draw the per-generation graphs to a pygame surface via matplotlib (Agg)."""
+        """Draw the per-cycle graphs to a pygame surface via matplotlib (Agg)."""
         dpi = 100
         fig = Figure(figsize=(px_w / dpi, px_h / dpi), dpi=dpi, facecolor=PLOT_FACE)
 
@@ -339,7 +409,7 @@ class WatchGUI:
 
         def _style(ax, title: str, ylabel: str):
             ax.set_title(title, color=TEXT_HEX, fontsize=10)
-            ax.set_xlabel("generation", color=AX_TEXT, fontsize=8)
+            ax.set_xlabel("cycle", color=AX_TEXT, fontsize=8)
             ax.set_ylabel(ylabel, color=AX_TEXT, fontsize=8)
             ax.set_facecolor(AX_FACE)
             ax.tick_params(colors=AX_TEXT, labelsize=7)
@@ -353,7 +423,7 @@ class WatchGUI:
                         color=PLOT_RANGE, alpha=0.35, label="pop range")
         ax.plot(gens, self.best_hist, color=PLOT_BEST, linewidth=1.8, label="best")
         ax.plot(gens, self.avg_hist, color=PLOT_AVG, linewidth=1.2, label="avg")
-        _style(ax, "Fitness (reward) over generations", "reward")
+        _style(ax, "Fitness (reward) over cycles", "reward")
         leg = ax.legend(fontsize=6, facecolor=AX_FACE, edgecolor=AX_SPINE)
         for text in leg.get_texts():
             text.set_color(TEXT_HEX)
