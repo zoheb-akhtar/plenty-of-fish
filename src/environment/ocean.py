@@ -16,7 +16,6 @@ import random
 import sys
 from typing import Tuple
 
-
 class Ocean:
     def __init__(self, tiles_x: int, tiles_y: int, tile_size: int = 64, draw_grid: bool = True):
         self.tiles_x = tiles_x
