@@ -10,8 +10,8 @@ behaviour improve together.
 A shark lives on a tile grid (the `Ocean`) scattered with safe and poisonous
 fish of different sizes. Each step it can move, attack, or rest; it spends energy
 to move and dies if it starves or bites poison while weak. The goal is a family
-of sharks whose **traits** (size, speed, caution) and **behaviour** (when to
-hunt vs. hang back) together earn the most reward.
+of sharks whose **traits** (size, speed, caution, aggression, breeding cadence)
+and **behaviour** (when to hunt vs. hang back) together earn the most reward.
 
 Two algorithms tackle this on two different timescales and meet through behaviour:
 
@@ -22,7 +22,8 @@ Two algorithms tackle this on two different timescales and meet through behaviou
   `discretize()` before they touch the table.
 - **GA — who reproduces.** The GA evolves genomes (tournament selection +
   arithmetic crossover + Gaussian mutation, with elitism). Only the *evolvable*
-  traits — `size`, `speed`, `caution` — vary; the rest hold their defaults.
+  traits — `size`, `speed`, `caution`, `gestation_period`, `aggression` — vary;
+  the rest hold their defaults.
 
 The link is deliberate: **a genome never edits the Q-table.** Instead a shark's
 temperament *biases which action it picks* (`biased_action` in
@@ -51,12 +52,12 @@ multi-agent RL.
 shark's evolvable traits and its fitness (reward earned in the `Ocean`):
 
 ```
-Gen |  Size | Speed | Caution | Fitness
-----+-------+-------+---------+--------
-  1 | 6.114 | 9.872 |   0.281 | 41.3333
-  2 | 6.114 | 9.872 |   0.281 | 47.0000
+Gen |  Size | Speed | Caution | Gestation_period | Aggression | Fitness
+----+-------+-------+---------+------------------+------------+--------
+  1 | 6.114 | 9.872 |   0.281 |           12.000 |      0.500 | 41.3333
+  2 | 6.114 | 9.872 |   0.281 |           11.842 |      0.504 | 47.0000
 ...
- 30 | 7.248 | 8.795 |   0.634 | 58.6667
+ 30 | 7.248 | 8.795 |   0.634 |            9.310 |      0.688 | 58.6667
 ```
 
 …then prints the winning shark's full trait set:
@@ -66,8 +67,8 @@ Best shark found (judged by reward earned in the Ocean env):
   size                  7.248 (evolved)
   speed                 8.795 (evolved)
   caution               0.634 (evolved)
-  gestation_period      12.000
-  aggression            0.500
+  gestation_period      9.310 (evolved)
+  aggression            0.688 (evolved)
   field_of_perception   5.000
   color_hue             205.000
 ```
@@ -75,12 +76,17 @@ Best shark found (judged by reward earned in the Ocean env):
 Unless `--no-plots` is passed, matplotlib also shows each evolvable trait's
 trajectory and a best-vs-population-range fitness curve over the generations.
 
-**Watch GUI** (`--watch`) animates a grid of mini-oceans — one shark per cell,
-all sharing the evolving brain — with a live metrics panel (press **M**) plotting
-the same curves as the simulation runs. **Play GUI** (`--play`) lets you steer a
-single randomly-statted shark yourself. The standalone RL trainer also saves a
-learning curve to `src/algorithms/rl_algo/training_plot.png` and per-episode
-numbers to `training_log.csv`.
+**Watch GUI** (`--watch`) animates the colony foraging in a **shared ocean**:
+the sharks compete for one depleting, self-replenishing fish pool, so food is a
+real constraint. Breeding is **food-gated** (only well-fed sharks reproduce, on a
+`gestation_period` cooldown), overcrowding **culls the weakest foragers** rather
+than random ones, and resting carries a small energy cost — together these keep
+the population near an emergent carrying capacity instead of a hard cap. Use
+**←/→** to page through the whole pod, **Space** to pause, and **M** for the live
+metrics panel. **Play GUI** (`--play`) lets you steer a single randomly-statted
+shark yourself. The standalone RL trainer also saves a learning curve to
+`src/algorithms/rl_algo/training_plot.png` and per-episode numbers to
+`training_log.csv`.
 
 ---
 
