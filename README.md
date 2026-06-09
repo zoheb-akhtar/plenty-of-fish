@@ -59,18 +59,17 @@ Gen |  Size | Speed | Caution | Fitness
  30 | 7.248 | 8.795 |   0.634 | 58.6667
 ```
 
-…then writes the winner to [`results/best_genome.json`](results/best_genome.json):
+…then prints the winning shark's full trait set:
 
-```json
-{
-  "size": 7.25,
-  "speed": 8.80,
-  "caution": 0.63,
-  "gestation_period": 12.0,
-  "aggression": 0.5,
-  "field_of_perception": 5.0,
-  "color_hue": 205.0
-}
+```
+Best shark found (judged by reward earned in the Ocean env):
+  size                  7.248 (evolved)
+  speed                 8.795 (evolved)
+  caution               0.634 (evolved)
+  gestation_period      12.000
+  aggression            0.500
+  field_of_perception   5.000
+  color_hue             205.000
 ```
 
 Unless `--no-plots` is passed, matplotlib also shows each evolvable trait's
@@ -91,10 +90,8 @@ numbers to `training_log.csv`.
 
 ```
 plenty-of-fish/
-├── Makefile                     # housekeeping: make clean / clean-results / help
+├── Makefile                     # housekeeping: make clean / help
 ├── README.md
-├── results/
-│   └── best_genome.json         # winner of the most recent headless run
 └── src/
     ├── main.py                  # entry point — wires GA + RL together (CLI below)
     ├── simulation.py            # the bridge: genome biases action choice; fitness = reward
@@ -171,8 +168,7 @@ Housekeeping via the Makefile (never touches `.venv/` or `.git/`):
 
 ```bash
 make help            # list targets
-make clean           # remove caches / bytecode / OS junk (keeps results)
-make clean-results   # clear generated outputs in results/
+make clean           # remove caches / bytecode / OS junk
 ```
 
 ---
