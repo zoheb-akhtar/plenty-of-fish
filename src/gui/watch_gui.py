@@ -76,7 +76,8 @@ AX_TEXT = "#aab2c5"
 PLOT_BEST = "#ffd24a"
 PLOT_AVG = "#7fd1a0"
 PLOT_RANGE = "#4a6fa5"
-PLOT_TRAIT = "#ff9d5c"
+PLOT_TRAIT = "#ff9d5c"        # best shark's trait value
+PLOT_TRAIT_AVG = "#ffd24a"    # colony-average trait value (yellow)
 PLOT_POP = "#6fb6ff"        # population line
 PLOT_BIRTHS = "#7fd1a0"     # births (green, good)
 PLOT_FORAGE = "#ff6b6b"     # foraging deaths (red, poison/starve)
@@ -125,6 +126,9 @@ class WatchGUI:
 
         # View state: "watch" (the grid) or "metrics" (the live graphs).
         self.view = "watch"
+        # Vertical scroll offset (px) for the metrics page, which is taller than
+        # the window; clamped to the figure height when drawn.
+        self.metrics_scroll = 0
         # Which page of the colony the grid is showing (←/→ to page through all).
         self.page = 0
         self.metrics_btn = pygame.Rect(self.width - 132, 12, 118, 30)
@@ -137,6 +141,7 @@ class WatchGUI:
         self.min_hist: list[float] = []
         self.max_hist: list[float] = []
         self.trait_hist: dict[str, list[float]] = {g: [] for g in self.genes}
+        self.avg_trait_hist: dict[str, list[float]] = {g: [] for g in self.genes}
         # Population size and per-cycle lifecycle event counts, for their charts.
         self.pop_hist: list[int] = []
         self.births_hist: list[int] = []
@@ -259,8 +264,12 @@ class WatchGUI:
         self.min_hist.append(min(fitnesses))
         self.max_hist.append(max(fitnesses))
         self.pop_hist.append(len(self.population))
+        pop_n = len(self.population)
         for gene in self.genes:
             self.trait_hist[gene].append(best_shark.genome[gene])
+            self.avg_trait_hist[gene].append(
+                sum(s.genome[gene] for s in self.population) / pop_n
+            )
 
         # Record each shark's foraging outcome, and mark foraging deaths (env.alive
         # False) out of the gene pool. The recorded reward/food drives who breeds.
@@ -342,6 +351,12 @@ class WatchGUI:
                     elif event.key in (pygame.K_LEFT, pygame.K_RIGHT) and self.view == "watch":
                         self.page += -1 if event.key == pygame.K_LEFT else 1
                         self._recompute_shown()
+                    elif event.key in (pygame.K_UP, pygame.K_DOWN) and self.view == "metrics":
+                        self.metrics_scroll += -60 if event.key == pygame.K_UP else 60
+                    elif event.key in (pygame.K_PAGEUP, pygame.K_PAGEDOWN) and self.view == "metrics":
+                        self.metrics_scroll += -300 if event.key == pygame.K_PAGEUP else 300
+                elif event.type == pygame.MOUSEWHEEL and self.view == "metrics":
+                    self.metrics_scroll -= event.y * 80
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     self._handle_click(event.pos)
             # The simulation keeps running in either view, so the graphs update live.
@@ -457,38 +472,69 @@ class WatchGUI:
         self.screen.fill(HUD_BG)
         self._draw_button(self.back_btn, "< Back")
         title = self.font.render(
-            f"Metrics · cycle {self.cycle} · population {self.pop_total}", True, TEXT
+            f"Metrics · cycle {self.cycle} · population {self.pop_total}"
+            "    (↑/↓ or mouse wheel to scroll)",
+            True, TEXT,
         )
         self.screen.blit(title, (self.back_btn.right + 18, 18))
 
         top = HUD_H
-        area_w, area_h = self.width, self.height - top
+        area_w, viewport_h = self.width, self.height - top
         if not self.best_hist:
             msg = self.small.render(
                 "Collecting data — the first cycle is still running.", True, TEXT_DIM
             )
-            self.screen.blit(msg, msg.get_rect(center=(self.width // 2, top + area_h // 2)))
+            self.screen.blit(msg, msg.get_rect(center=(self.width // 2, top + viewport_h // 2)))
             return
 
-        # Re-render the figure only when a new cycle has been recorded.
+        # Re-render the figure only when a new cycle has been recorded. The figure
+        # is taller than the viewport, so we blit it at a scroll offset and clip.
         if self._metrics_surf is None or self._metrics_cached_gen != len(self.best_hist):
-            self._metrics_surf = self._render_metrics_figure(area_w, area_h)
+            self._metrics_surf = self._render_metrics_figure(area_w, viewport_h)
             self._metrics_cached_gen = len(self.best_hist)
-        self.screen.blit(self._metrics_surf, (0, top))
 
-    def _render_metrics_figure(self, px_w: int, px_h: int) -> pygame.Surface:
-        """Draw the per-cycle graphs to a pygame surface via matplotlib (Agg)."""
+        surf = self._metrics_surf
+        max_scroll = max(0, surf.get_height() - viewport_h)
+        self.metrics_scroll = max(0, min(self.metrics_scroll, max_scroll))
+
+        prev_clip = self.screen.get_clip()
+        self.screen.set_clip(pygame.Rect(0, top, self.width, viewport_h))
+        self.screen.blit(surf, (0, top - self.metrics_scroll))
+        self.screen.set_clip(prev_clip)
+
+        if max_scroll > 0:
+            self._draw_scrollbar(top, viewport_h, surf.get_height(), max_scroll)
+
+    def _draw_scrollbar(self, top: int, viewport_h: int, content_h: int, max_scroll: int):
+        """A thin position indicator on the right edge of the metrics viewport."""
+        x = self.width - 9
+        pygame.draw.rect(self.screen, (28, 34, 50),
+                         pygame.Rect(x, top, 6, viewport_h), border_radius=3)
+        thumb_h = max(28, int(viewport_h * viewport_h / content_h))
+        thumb_y = top + int((viewport_h - thumb_h) * (self.metrics_scroll / max_scroll))
+        pygame.draw.rect(self.screen, BTN_BORDER,
+                         pygame.Rect(x, thumb_y, 6, thumb_h), border_radius=3)
+
+    def _render_metrics_figure(self, px_w: int, min_h: int) -> pygame.Surface:
+        """Draw the per-cycle graphs to a tall pygame surface via matplotlib (Agg).
+
+        The line charts sit two-per-row at the top; the Q-table heatmap gets its
+        own full-width band below so its tiles are big enough to read. The figure
+        is rendered taller than the viewport (``min_h``) so the page scrolls.
+        """
         dpi = 100
-        fig = Figure(figsize=(px_w / dpi, px_h / dpi), dpi=dpi, facecolor=PLOT_FACE)
 
-        # Core panels (fitness, population, deaths, Q-table) + one per trait.
-        n_plots = 4 + len(self.genes)
-        cols = 2
-        rows = math.ceil(n_plots / cols)
-        axes = fig.subplots(rows, cols, squeeze=False)
-        flat = [axes[r][c] for r in range(rows) for c in range(cols)]
-        for ax in flat[n_plots:]:  # hide any unused grid cells
-            ax.set_visible(False)
+        # Line charts: fitness, population, deaths, + one per evolvable trait.
+        n_line = 3 + len(self.genes)
+        line_rows = math.ceil(n_line / 2)
+        heat_rows = 3                       # grid rows the full-width heatmap spans
+        total_rows = line_rows + heat_rows
+        px_h = max(min_h, total_rows * 240)  # ~240 px per grid row → taller than the view
+
+        fig = Figure(figsize=(px_w / dpi, px_h / dpi), dpi=dpi, facecolor=PLOT_FACE)
+        gs = fig.add_gridspec(total_rows, 2)
+        flat = [fig.add_subplot(gs[i // 2, i % 2]) for i in range(n_line)]
+        ax_heat = fig.add_subplot(gs[line_rows:, :])
 
         gens = range(1, len(self.best_hist) + 1)
 
@@ -537,16 +583,21 @@ class WatchGUI:
         _style(ax, "Births & deaths per cycle", "count")
         _legend(ax)
 
-        # Q-table heatmap: every learned state (row) x action (column).
-        self._draw_qtable_heatmap(fig, flat[3])
-
-        # One subplot per evolvable trait: the best shark's value over time.
-        for ax, gene in zip(flat[4:], self.genes):
+        # One subplot per evolvable trait: best shark (orange) vs colony average
+        # (yellow). The title is just the trait name (e.g. "speed").
+        for ax, gene in zip(flat[3:], self.genes):
             spec = SHARK_TRAITS[gene]
             ax.plot(gens, self.trait_hist[gene], color=PLOT_TRAIT,
-                    marker="o", markersize=2, linewidth=1.4)
+                    marker="o", markersize=2, linewidth=1.4, label="best")
+            ax.plot(gens, self.avg_trait_hist[gene], color=PLOT_TRAIT_AVG,
+                    linewidth=1.4, label="avg")
             ax.set_ylim(spec.min_value, spec.max_value)
-            _style(ax, f"Best shark's {gene}", spec.unit)
+            _style(ax, gene, spec.unit)
+            _legend(ax)
+
+        # Q-table heatmap: every learned state (row) x action (column), in its own
+        # full-width band so the tiles are large enough to read.
+        self._draw_qtable_heatmap(fig, ax_heat)
 
         fig.tight_layout(pad=1.4)
         canvas = FigureCanvasAgg(fig)
@@ -581,6 +632,13 @@ class WatchGUI:
         ax.set_xticks(range(NUM_ACTIONS))
         ax.set_xticklabels([Action(i).name for i in range(NUM_ACTIONS)],
                            rotation=45, ha="right", fontsize=6, color=AX_TEXT)
+        # Outline each tile with thin gridlines so individual cells are readable
+        # (skip when there are so many states the lines would smother the colour).
+        if len(states) <= 60:
+            ax.set_xticks(np.arange(-0.5, NUM_ACTIONS, 1), minor=True)
+            ax.set_yticks(np.arange(-0.5, len(states), 1), minor=True)
+            ax.grid(which="minor", color=AX_SPINE, linewidth=0.5)
+            ax.tick_params(which="minor", length=0)
         # Row labels are unreadable past ~24 states, so only show them when sparse.
         if len(states) <= 24:
             ax.set_yticks(range(len(states)))
