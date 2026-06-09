@@ -31,11 +31,34 @@ class Shark:
     genome: SharkGenome
     age: int = 0          # completed birth cycles ("years"); newborns start at 0
     alive: bool = True
+    # How this shark's most recent foraging life went. The colony records these
+    # each cycle so reproduction and overcrowding can favour good foragers.
+    last_reward: float = 0.0
+    last_eaten: int = 0
+    bred_at_age: int = -1  # age at last breeding; -1 = never bred
 
     @property
     def can_reproduce(self) -> bool:
         """Only living sharks reproduce -- a dead shark can't breed."""
         return self.alive
+
+    def record_life(self, reward: float, eaten: int) -> None:
+        """Store the outcome of the cycle this shark just foraged."""
+        self.last_reward = reward
+        self.last_eaten = eaten
+
+    def ready_to_breed(self, gestation_divisor: float) -> bool:
+        """Has enough time passed since this shark last bred?
+
+        The ``gestation_period`` trait (in "months") is converted to a whole
+        number of birth cycles by ``gestation_divisor`` -- so a longer gestation
+        means a shark breeds less often, a real evolutionary trade-off.
+        """
+        interval = max(1, round(self.genome.gestation_period / gestation_divisor))
+        return self.bred_at_age < 0 or (self.age - self.bred_at_age) >= interval
+
+    def mark_bred(self) -> None:
+        self.bred_at_age = self.age
 
     def grow_older(self) -> None:
         """Advance one birth cycle; die on reaching ``MAX_AGE_YEARS``.
@@ -49,27 +72,78 @@ class Shark:
             self.alive = False
 
 
+def _weighted_pair(
+    breeders: list[Shark], weights: list[float], rng: random.Random
+) -> tuple[Shark, Shark]:
+    """Pick two distinct parents, each chosen with probability ~ its weight."""
+    a = rng.choices(breeders, weights=weights, k=1)[0]
+    for _ in range(8):  # resample until we get a different second parent
+        b = rng.choices(breeders, weights=weights, k=1)[0]
+        if b is not a:
+            return a, b
+    # Degenerate fallback (all weight on one shark): pair with any other.
+    b = next((s for s in breeders if s is not a), a)
+    return a, b
+
+
 def reproduce(
     population: list[Shark],
     rng: random.Random = random,
     mutation_rate: float = 0.0,
+    *,
+    require_food: bool = False,
+    fitness_weighted: bool = False,
+    gestation_divisor: float | None = None,
 ) -> list[Shark]:
-    """Breed one age-0 pup per two living sharks.
+    """Breed one age-0 pup per two eligible sharks.
 
-    Dead sharks are filtered out first (they can't reproduce); the survivors are
-    shuffled and paired, and each pair produces a single pup via genome crossover
-    (plus optional mutation). An odd shark out sits this cycle out.
+    By default (all flags off) this is the simple rule -- shuffle the living and
+    pair them, one pup per pair. The keyword flags add selection pressure:
+
+    * ``gestation_divisor`` -- a shark only breeds if enough cycles have passed
+      since its last brood (see :meth:`Shark.ready_to_breed`).
+    * ``require_food`` -- only sharks that ate at least one fish last cycle are
+      fertile, so foraging success gates reproduction.
+    * ``fitness_weighted`` -- parents are drawn with probability proportional to
+      how well they foraged, so good hunters leave more offspring.
+
+    Sharks that breed are marked so ``ready_to_breed`` can space out their broods.
     """
     breeders = [s for s in population if s.can_reproduce]
-    rng.shuffle(breeders)
+    if gestation_divisor is not None:
+        breeders = [s for s in breeders if s.ready_to_breed(gestation_divisor)]
+    if require_food:
+        breeders = [s for s in breeders if s.last_eaten > 0]
+    if len(breeders) < 2:
+        return []
+
     pups: list[Shark] = []
-    for i in range(0, len(breeders) - 1, 2):
-        pup_genome, _ = SharkGenome.crossover(
-            breeders[i].genome, breeders[i + 1].genome, rng
-        )
-        if mutation_rate:
-            pup_genome = pup_genome.mutate(mutation_rate, rng)
-        pups.append(Shark(genome=pup_genome))
+    n_pairs = len(breeders) // 2
+
+    if fitness_weighted:
+        # Fertility favours good foragers: a shark's weight grows with the fish
+        # it ate and any positive reward it earned. The +1 keeps every fertile
+        # shark in the lottery so weak-but-fed sharks can still occasionally breed.
+        weights = [1.0 + 2.0 * s.last_eaten + max(0.0, s.last_reward) for s in breeders]
+        for _ in range(n_pairs):
+            a, b = _weighted_pair(breeders, weights, rng)
+            pup_genome, _ = SharkGenome.crossover(a.genome, b.genome, rng)
+            if mutation_rate:
+                pup_genome = pup_genome.mutate(mutation_rate, rng)
+            pups.append(Shark(genome=pup_genome))
+            a.mark_bred()
+            b.mark_bred()
+    else:
+        rng.shuffle(breeders)
+        for i in range(0, len(breeders) - 1, 2):
+            pup_genome, _ = SharkGenome.crossover(
+                breeders[i].genome, breeders[i + 1].genome, rng
+            )
+            if mutation_rate:
+                pup_genome = pup_genome.mutate(mutation_rate, rng)
+            pups.append(Shark(genome=pup_genome))
+            breeders[i].mark_bred()
+            breeders[i + 1].mark_bred()
     return pups
 
 

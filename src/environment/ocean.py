@@ -9,8 +9,10 @@ shark's *traits* (from a :class:`~src.shark.SharkGenome`) drive the mechanics:
   * field_of_perception -> how far it senses the nearest fish (its observation)
 
 Each shark in a family gets its OWN ``Ocean`` instance; they share only the
-brain (see ``src/simulation.py``). The observation keeps the exact shape
-``discretize()`` expects, so the RL code is unchanged.
+brain (see ``src/simulation.py``). In Watch mode the colony can also forage a
+single shared fish pool (``reset(shared_fishes=...)``) so sharks compete for the
+same food. The observation keeps the exact shape ``discretize()`` expects, so
+the RL code is unchanged.
 """
 
 from __future__ import annotations
@@ -33,7 +35,6 @@ from src.shark import SHARK_TRAITS, SharkGenome
 SIZE_NAMES = ("small", "medium", "large")
 _MOVES = (Action.UP, Action.DOWN, Action.LEFT, Action.RIGHT)
 _DELTA = {Action.UP: (0, -1), Action.DOWN: (0, 1), Action.LEFT: (-1, 0), Action.RIGHT: (1, 0)}
-_FISH_STEPS = ((0, -1), (0, 1), (-1, 0), (1, 0))  # cardinal drift directions for fish random-walk
 
 
 @dataclass
@@ -58,6 +59,111 @@ def _size_tier(size_value: float, thresholds: tuple[float, float]) -> int:
     return 2
 
 
+def _fish_spec(cfg: EnvConfig) -> list[tuple[str, str, int]]:
+    """The configured (kind, size, count) make-up of a fresh fish set."""
+    return [
+        ("safe", "small", cfg.num_safe_small),
+        ("safe", "medium", cfg.num_safe_medium),
+        ("safe", "large", cfg.num_safe_large),
+        ("poisonous", "small", cfg.num_poison_small),
+        ("poisonous", "medium", cfg.num_poison_medium),
+        ("poisonous", "large", cfg.num_poison_large),
+    ]
+
+
+def _scaled_counts(spec: list[tuple[str, str, int]], target_total: int) -> list[tuple[str, str, int]]:
+    """Scale the configured counts to roughly ``target_total`` fish, same mix."""
+    base_total = sum(n for *_, n in spec)
+    if base_total == 0 or target_total <= 0:
+        return spec
+    scale = target_total / base_total
+    scaled = [(k, s, max(0, round(n * scale))) for k, s, n in spec]
+    if sum(n for *_, n in scaled) == 0:
+        k, s, _ = scaled[0]
+        scaled[0] = (k, s, 1)
+    return scaled
+
+
+def _random_fish_at(cfg: EnvConfig, rng: random.Random, pos: tuple[int, int]) -> "Fish":
+    """A fresh fish whose (kind, size) follows the configured spawn mix."""
+    pool = [(k, s) for k, s, n in _fish_spec(cfg) for _ in range(n)]
+    kind, size = rng.choice(pool) if pool else ("safe", "small")
+    return Fish(kind, size, pos)
+
+
+def spawn_fish(
+    cfg: EnvConfig,
+    rng: random.Random,
+    target_total: int | None = None,
+    exclude: tuple[tuple[int, int], ...] | set = (),
+) -> list["Fish"]:
+    """Place a fish set on random free tiles.
+
+    ``target_total`` scales the configured mix up/down (used for the colony's
+    shared, population-sized pool); when ``None`` the exact configured counts are
+    used. The total is clamped to the number of free tiles so a big shared pool
+    can never overflow the grid.
+    """
+    spec = _fish_spec(cfg)
+    if target_total is not None:
+        spec = _scaled_counts(spec, target_total)
+    excl = set(exclude)
+    free = [
+        (x, y)
+        for x in range(cfg.size)
+        for y in range(cfg.size)
+        if (x, y) not in excl
+    ]
+    total = sum(n for *_, n in spec)
+    if total > len(free):  # clamp to fit, keeping the mix
+        spec = _scaled_counts(_fish_spec(cfg), len(free))
+        total = min(sum(n for *_, n in spec), len(free))
+    positions = rng.sample(free, total)
+    fishes: list[Fish] = []
+    i = 0
+    for kind, size, n in spec:
+        for _ in range(n):
+            fishes.append(Fish(kind, size, positions[i]))
+            i += 1
+    return fishes
+
+
+def advance_fish_pool(
+    fishes: list["Fish"],
+    cfg: EnvConfig,
+    rng: random.Random,
+    size: int,
+    target: int | None = None,
+    blocked: tuple[tuple[int, int], ...] | set = (),
+) -> None:
+    """Drift fish one tile (some of them) and occasionally respawn toward target.
+
+    Mutates ``fishes`` in place. ``blocked`` tiles (e.g. shark positions) are
+    avoided when respawning. Call once per world tick.
+    """
+    occupied = {f.pos for f in fishes}
+    if cfg.fish_move_prob > 0:
+        for f in fishes:
+            if rng.random() < cfg.fish_move_prob:
+                dx, dy = rng.choice(((0, -1), (0, 1), (-1, 0), (1, 0)))
+                nxt = (f.pos[0] + dx, f.pos[1] + dy)
+                if 0 <= nxt[0] < size and 0 <= nxt[1] < size and nxt not in occupied:
+                    occupied.discard(f.pos)
+                    occupied.add(nxt)
+                    f.pos = nxt
+    if target is not None and len(fishes) < target and cfg.fish_respawn_prob > 0:
+        if rng.random() < cfg.fish_respawn_prob:
+            taken = occupied | set(blocked)
+            free = [
+                (x, y)
+                for x in range(size)
+                for y in range(size)
+                if (x, y) not in taken
+            ]
+            if free:
+                fishes.append(_random_fish_at(cfg, rng, rng.choice(free)))
+
+
 class Ocean:
     """Single-shark grid world. ``(x, y)`` with x rightward, y downward."""
 
@@ -80,6 +186,11 @@ class Ocean:
         self.eaten = 0
         self.fishes: list[Fish] = []
         self.done = False
+        # When the colony shares one fish pool, an Ocean reads/eats from it but
+        # doesn't own it: it won't spawn or drift the fish (the colony does that
+        # once per tick). A solo Ocean owns its fish and manages them itself.
+        self.owns_fish = True
+        self._fish_target = 0
 
     # --- trait-derived parameters (computed once from the genome) -------------
     def _derive_traits(self) -> None:
@@ -97,7 +208,7 @@ class Ocean:
         self.step_cost = cfg.base_move_cost + cfg.metab_scale * metab
 
     # --- episode lifecycle ----------------------------------------------------
-    def reset(self) -> dict:
+    def reset(self, shared_fishes: list[Fish] | None = None) -> dict:
         if self.config.seed is not None:
             self.rng.seed(self.config.seed)
         self.shark = self.config.shark_start
@@ -106,37 +217,27 @@ class Ocean:
         self.alive = True
         self.eaten = 0
         self.done = False
-        self.fishes = self._spawn_fish()
+        if shared_fishes is not None:
+            # Forage a colony-owned pool: don't spawn or drift it ourselves.
+            self.fishes = shared_fishes
+            self.owns_fish = False
+        else:
+            self.fishes = self._spawn_fish()
+            self.owns_fish = True
+            self._fish_target = len(self.fishes)
         return self.observe()
 
     def _spawn_fish(self) -> list[Fish]:
-        cfg = self.config
-        spec = [
-            ("safe", "small", cfg.num_safe_small),
-            ("safe", "medium", cfg.num_safe_medium),
-            ("safe", "large", cfg.num_safe_large),
-            ("poisonous", "small", cfg.num_poison_small),
-            ("poisonous", "medium", cfg.num_poison_medium),
-            ("poisonous", "large", cfg.num_poison_large),
-        ]
-        total = sum(n for _, _, n in spec)
-        free = [
-            (x, y)
-            for x in range(cfg.size)
-            for y in range(cfg.size)
-            if (x, y) != cfg.shark_start
-        ]
-        if total > len(free):
-            raise ValueError(
-                f"Cannot place {total} fish on {len(free)} free tiles (grid {cfg.size}x{cfg.size})."
-            )
-        positions = self.rng.sample(free, total)
-        fishes, i = [], 0
-        for kind, size, n in spec:
-            for _ in range(n):
-                fishes.append(Fish(kind, size, positions[i]))
-                i += 1
-        return fishes
+        return spawn_fish(self.config, self.rng, exclude={self.config.shark_start})
+
+    def advance_fish(self) -> None:
+        """Drift/respawn this ocean's own fish one tick (no-op for shared pools)."""
+        if not self.owns_fish:
+            return
+        advance_fish_pool(
+            self.fishes, self.config, self.rng, self.size,
+            target=self._fish_target, blocked={self.shark},
+        )
 
     def step(self, action: Action) -> tuple[dict, float, bool]:
         """Advance one timestep. Returns ``(obs, reward, done)`` (done = shark died)."""
@@ -154,7 +255,12 @@ class Ocean:
 
         if not self.done:  # poison death short-circuits the energy economy
             if action == Action.REST:
-                self.energy = min(cfg.max_energy, self.energy + cfg.rest_energy_gain)
+                # Resting recovers energy, but a shark still burns some just
+                # staying alive -- so idling forever can't sustain it.
+                self.energy = min(
+                    cfg.max_energy,
+                    self.energy + cfg.rest_energy_gain - cfg.rest_passive_cost,
+                )
             else:
                 self.energy -= self.step_cost
             if self.energy <= 0:
@@ -163,27 +269,10 @@ class Ocean:
                 self.alive = False
                 self.done = True
 
-        if cfg.fish_move and not self.done:  # prey drift after the shark's action resolves
-            self._move_fishes()
+        if not self.done:  # prey drift/respawn over the shark's life
+            self.advance_fish()
 
         return self.observe(), reward, self.done
-
-    def _move_fishes(self) -> None:
-        """Each fish takes one random cardinal step, clamped at the edges.
-
-        Fish may overlap each other and the shark — there's no occupancy grid,
-        so a step that would leave the board simply keeps the fish in place.
-        Each fish only drifts with probability ``fish_move_prob`` per step, so
-        prey wander gently rather than darting every tick.
-        """
-        prob = self.config.fish_move_prob
-        for f in self.fishes:
-            if self.rng.random() >= prob:
-                continue
-            dx, dy = self.rng.choice(_FISH_STEPS)
-            nx, ny = f.pos[0] + dx, f.pos[1] + dy
-            if 0 <= nx < self.size and 0 <= ny < self.size:
-                f.pos = (nx, ny)
 
     def _move(self, action: Action) -> None:
         dx, dy = _DELTA[action]

@@ -95,7 +95,7 @@ def main() -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Plenty of Fish - GA + RL shark evolution")
     parser.add_argument("--population", type=int, default=None,
-                        help="sharks per generation (even); default 30 headless, 12 for --watch")
+                        help="sharks per generation (even); default 30 headless and for --watch")
     parser.add_argument("--generations", type=int, default=30)
     parser.add_argument("--max-steps", type=int, default=200, help="steps in one shark's life")
     parser.add_argument("--lives", type=int, default=3, help="lives averaged per genome per gen")
