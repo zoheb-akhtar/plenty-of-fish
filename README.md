@@ -108,9 +108,10 @@ plenty-of-fish/
     │       ├── toy_env.py       # original practice grid (superseded by Ocean)
     │       ├── train_headless.py# standalone RL trainer (plot + CSV)
     │       └── README.md        # notes on the RL side
-    ├── environment/
+    ├── environment/             # the world (pure Python, no pygame)
     │   ├── config.py            # EnvConfig — every Ocean/GUI knob in one place
-    │   ├── ocean.py             # the world: one shark foraging among sized fish
+    │   └── ocean.py             # the world: one shark foraging among sized fish
+    ├── gui/                     # pygame rendering (only needed for --watch / --play)
     │   ├── gui.py               # Play mode (control one shark)
     │   ├── watch_gui.py         # Watch mode (spectate the family evolve)
     │   ├── seabed.py            # seabed tile renderer

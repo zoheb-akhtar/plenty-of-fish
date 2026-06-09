@@ -57,14 +57,14 @@ def main() -> None:
     args = _build_parser().parse_args()
 
     if args.watch:
-        from src.environment.watch_gui import run
+        from src.gui.watch_gui import run
         pop = args.population if args.population is not None else DEFAULT_CONFIG.watch_population_size
         run(replace(DEFAULT_CONFIG,
                     watch_population_size=pop,
                     watch_mutation_rate=args.mutation_rate))
         return
     if args.play:
-        from src.environment.gui import run
+        from src.gui.gui import run
         run()
         return
 

@@ -19,7 +19,7 @@ A cold brain would kill the founding pod before it learns anything, so the brain
 is warmed headlessly at startup (``watch_brain_warmup_lives``) -- you then watch
 a *competent* colony play out its lifecycle.
 
-Run:  python -m src.environment.watch_gui   (or python src/environment/watch_gui.py)
+Run:  python -m src.gui.watch_gui   (or python src/gui/watch_gui.py)
 Controls: Space pause/resume · M metrics · Q/Esc quit.
 """
 
@@ -42,10 +42,10 @@ if __package__ in (None, ""):
 from src.algorithms.genetic_algo import create_initial_population
 from src.algorithms.rl_algo import FamilyRL, discretize
 from src.environment.config import DEFAULT_CONFIG, EnvConfig
-from src.environment.fish_drawing import draw_fish
-from src.environment.gui import FACING_ANGLE  # reuse the rotation map
 from src.environment.ocean import Ocean
-from src.environment.shark_drawing import make_genome_shark_sprite
+from src.gui.fish_drawing import draw_fish
+from src.gui.gui import FACING_ANGLE  # reuse the rotation map
+from src.gui.shark_drawing import make_genome_shark_sprite
 from src.shark import MAX_AGE_YEARS, SHARK_TRAITS, Shark, SharkGenome, evolvable_traits, reproduce
 from src.simulation import biased_action, run_life
 

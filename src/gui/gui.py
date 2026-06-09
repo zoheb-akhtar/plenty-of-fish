@@ -5,7 +5,7 @@ The shark's traits are randomised each run and shape how it plays:
   * speed sets how many tiles you cover per move,
   * perception sets how far you sense fish (the ring around you).
 
-Run:  python -m src.environment.gui   (or python src/environment/gui.py)
+Run:  python -m src.gui.gui   (or python src/gui/gui.py)
 
 Controls: Arrows/WASD move, Space attack, E rest, R new shark, Q/Esc quit.
 """
@@ -25,10 +25,10 @@ if __package__ in (None, ""):
 
 from src.algorithms.rl_algo.actions import Action
 from src.environment.config import DEFAULT_CONFIG, EnvConfig
-from src.environment.fish_drawing import draw_fish
 from src.environment.ocean import Ocean
-from src.environment.seabed import Seabed
-from src.environment.shark_drawing import make_genome_shark_sprite
+from src.gui.fish_drawing import draw_fish
+from src.gui.seabed import Seabed
+from src.gui.shark_drawing import make_genome_shark_sprite
 from src.shark import SharkGenome
 
 HUD_H = 112

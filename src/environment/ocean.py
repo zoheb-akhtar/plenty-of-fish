@@ -33,6 +33,7 @@ from src.shark import SHARK_TRAITS, SharkGenome
 SIZE_NAMES = ("small", "medium", "large")
 _MOVES = (Action.UP, Action.DOWN, Action.LEFT, Action.RIGHT)
 _DELTA = {Action.UP: (0, -1), Action.DOWN: (0, 1), Action.LEFT: (-1, 0), Action.RIGHT: (1, 0)}
+_FISH_STEPS = ((0, -1), (0, 1), (-1, 0), (1, 0))  # cardinal drift directions for fish random-walk
 
 
 @dataclass
@@ -162,7 +163,27 @@ class Ocean:
                 self.alive = False
                 self.done = True
 
+        if cfg.fish_move and not self.done:  # prey drift after the shark's action resolves
+            self._move_fishes()
+
         return self.observe(), reward, self.done
+
+    def _move_fishes(self) -> None:
+        """Each fish takes one random cardinal step, clamped at the edges.
+
+        Fish may overlap each other and the shark — there's no occupancy grid,
+        so a step that would leave the board simply keeps the fish in place.
+        Each fish only drifts with probability ``fish_move_prob`` per step, so
+        prey wander gently rather than darting every tick.
+        """
+        prob = self.config.fish_move_prob
+        for f in self.fishes:
+            if self.rng.random() >= prob:
+                continue
+            dx, dy = self.rng.choice(_FISH_STEPS)
+            nx, ny = f.pos[0] + dx, f.pos[1] + dy
+            if 0 <= nx < self.size and 0 <= ny < self.size:
+                f.pos = (nx, ny)
 
     def _move(self, action: Action) -> None:
         dx, dy = _DELTA[action]
