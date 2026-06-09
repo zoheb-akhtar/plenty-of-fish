@@ -1,19 +1,22 @@
-"""Watch mode: spectate a shark colony live, breed, age, and die.
+"""Watch mode: spectate a shark colony live, compete, breed, age, and die.
 
-A colony of sharks each forage in their OWN ocean (a grid of mini-oceans), all
-sharing one ``FamilyRL`` brain. Each cycle ("year") is one shark lifetime of
-foraging followed by the :mod:`src.shark.shark` lifecycle:
+A colony of sharks forages ONE shared, depleting ocean (a fish eaten by one is
+gone for all of them), all sharing one ``FamilyRL`` brain. Each cycle ("year")
+is one shark lifetime of foraging followed by the :mod:`src.shark.shark`
+lifecycle, with selection pressure layered on top:
 
   * the brain learns every step (tabular Q-learning);
   * a shark that dies foraging (starves or bites poison) is out of the gene pool;
-  * the survivors breed -- **one pup per two living sharks** -- and everyone ages
-    a year, dying of old age at ``MAX_AGE_YEARS`` (15 cycles).
+  * only sharks that *ate* breed, better foragers leave more offspring, and each
+    shark's ``gestation_period`` trait spaces out its broods;
+  * everyone ages a year, dying of old age at ``MAX_AGE_YEARS`` (15 cycles);
+  * when the pod exceeds the carrying capacity, overcrowding culls the *weakest*
+    foragers first (newborn pups are spared that cycle).
 
-The pod grows or shrinks on its own merits -- there's no fixed size, only a
-carrying capacity that randomly thins overcrowding. The whole colony is
-simulated, but the grid is a fixed viewport that only ever shows up to
-``watch_display_slots`` of them (a random sample when the pod is larger); the HUD
-reports the true population.
+So the colony grows on its own merits toward a carrying capacity where food
+competition keeps it in check. The whole colony is simulated, but the grid is a
+fixed viewport that only ever shows up to ``watch_display_slots`` of them (a
+random sample when the pod is larger); the HUD reports the true population.
 
 A cold brain would kill the founding pod before it learns anything, so the brain
 is warmed headlessly at startup (``watch_brain_warmup_lives``) -- you then watch
@@ -30,6 +33,7 @@ import os
 import random
 import sys
 
+import numpy as np
 import pygame
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
@@ -40,11 +44,11 @@ if __package__ in (None, ""):
         sys.path.insert(0, _ROOT)
 
 from src.algorithms.genetic_algo import create_initial_population
-from src.algorithms.rl_algo import FamilyRL, discretize
+from src.algorithms.rl_algo import NUM_ACTIONS, Action, FamilyRL, discretize
 from src.environment.config import DEFAULT_CONFIG, EnvConfig
 from src.environment.fish_drawing import draw_fish
 from src.environment.gui import FACING_ANGLE  # reuse the rotation map
-from src.environment.ocean import Ocean
+from src.environment.ocean import Ocean, advance_fish_pool, spawn_fish
 from src.environment.shark_drawing import make_genome_shark_sprite
 from src.shark import MAX_AGE_YEARS, SHARK_TRAITS, Shark, SharkGenome, evolvable_traits, reproduce
 from src.simulation import biased_action, run_life
@@ -73,6 +77,12 @@ PLOT_BEST = "#ffd24a"
 PLOT_AVG = "#7fd1a0"
 PLOT_RANGE = "#4a6fa5"
 PLOT_TRAIT = "#ff9d5c"
+PLOT_POP = "#6fb6ff"        # population line
+PLOT_BIRTHS = "#7fd1a0"     # births (green, good)
+PLOT_FORAGE = "#ff6b6b"     # foraging deaths (red, poison/starve)
+PLOT_OLDAGE = "#c9a0ff"     # old-age deaths (purple)
+PLOT_CULL = "#ff9d5c"       # overcrowding culls (orange)
+HEATMAP_CMAP = "RdYlGn"     # Q-values: red = bad, green = good
 
 
 class WatchGUI:
@@ -115,6 +125,8 @@ class WatchGUI:
 
         # View state: "watch" (the grid) or "metrics" (the live graphs).
         self.view = "watch"
+        # Which page of the colony the grid is showing (←/→ to page through all).
+        self.page = 0
         self.metrics_btn = pygame.Rect(self.width - 132, 12, 118, 30)
         self.back_btn = pygame.Rect(14, 12, 96, 30)
 
@@ -125,6 +137,12 @@ class WatchGUI:
         self.min_hist: list[float] = []
         self.max_hist: list[float] = []
         self.trait_hist: dict[str, list[float]] = {g: [] for g in self.genes}
+        # Population size and per-cycle lifecycle event counts, for their charts.
+        self.pop_hist: list[int] = []
+        self.births_hist: list[int] = []
+        self.forage_death_hist: list[int] = []
+        self.oldage_death_hist: list[int] = []
+        self.cull_hist: list[int] = []
         # Cache the rendered figure; re-render only when a new cycle lands.
         self._metrics_surf: pygame.Surface | None = None
         self._metrics_cached_gen = -1
@@ -158,8 +176,28 @@ class WatchGUI:
         self.population = population
         self.pop_total = len(population)
         self.envs = [Ocean(self.config, genome=s.genome, rng=self.rng) for s in population]
-        for e in self.envs:
-            e.reset()
+
+        # Competition: the whole colony forages ONE shared, depleting fish pool
+        # sized to the population (capped by the grid). A fish eaten by one shark
+        # is gone for all of them, so good hunters take food from the rest.
+        if self.config.watch_shared_fish_pool:
+            free_tiles = self.config.size * self.config.size - 1
+            target = min(
+                free_tiles,
+                self.config.watch_fish_pool_cap,
+                max(1, round(self.config.watch_fish_per_shark * len(population))),
+            )
+            self.shared_fishes = spawn_fish(
+                self.config, self.rng, target_total=target,
+                exclude={self.config.shark_start},
+            )
+            self.shared_fish_target = len(self.shared_fishes)
+            for e in self.envs:
+                e.reset(shared_fishes=self.shared_fishes)
+        else:
+            self.shared_fishes = None
+            for e in self.envs:
+                e.reset()
         self.states = [discretize(e.observe()) for e in self.envs]
         self.totals = [0.0] * len(population)
         self.step_in_life = 0
@@ -167,12 +205,16 @@ class WatchGUI:
             make_genome_shark_sprite(self.cell_tile, s.genome.color(), e.size_norm)
             for s, e in zip(population, self.envs)
         ]
-        # Which population members fill the grid this cycle (a fresh random sample
-        # when the population overflows the grid, else everyone).
-        if len(population) > self.slots:
-            self.shown = sorted(self.view_rng.sample(range(len(population)), self.slots))
-        else:
-            self.shown = list(range(len(population)))
+        # Fill the grid from the current page so you can ←/→ through the whole pod.
+        self._recompute_shown()
+
+    def _recompute_shown(self) -> None:
+        """Pick which sharks the grid shows, based on the current page."""
+        pop = len(self.population)
+        max_page = max(0, (pop - 1) // self.slots)
+        self.page = max(0, min(self.page, max_page))  # clamp (population shrinks/grows)
+        start = self.page * self.slots
+        self.shown = list(range(start, min(start + self.slots, pop)))
 
     def _tick(self):
         """Advance every living shark one foraging step (and learn); roll the cycle when all finish."""
@@ -191,6 +233,14 @@ class WatchGUI:
             self.totals[i] += reward
             if not env.fishes:  # ate everything -> that life is over (survived)
                 env.done = True
+        # The shared pool is colony-owned, so drift/respawn it once per tick here
+        # (each Ocean skips its own fish upkeep when foraging a shared pool).
+        if self.shared_fishes is not None and not all_done:
+            living = {self.envs[i].shark for i, e in enumerate(self.envs) if not e.done}
+            advance_fish_pool(
+                self.shared_fishes, self.config, self.rng, self.config.size,
+                target=self.shared_fish_target, blocked=living,
+            )
         self.step_in_life += 1
         if all_done or self.step_in_life >= self.config.watch_max_steps:
             self._end_cycle()
@@ -208,32 +258,56 @@ class WatchGUI:
         self.avg_hist.append(self.avg_fitness)
         self.min_hist.append(min(fitnesses))
         self.max_hist.append(max(fitnesses))
+        self.pop_hist.append(len(self.population))
         for gene in self.genes:
             self.trait_hist[gene].append(best_shark.genome[gene])
 
-        # A shark that died foraging (env.alive False) is out of the gene pool.
-        for shark, env in zip(self.population, self.envs):
+        # Record each shark's foraging outcome, and mark foraging deaths (env.alive
+        # False) out of the gene pool. The recorded reward/food drives who breeds.
+        for i, (shark, env) in enumerate(zip(self.population, self.envs)):
+            shark.record_life(self.totals[i], env.eaten)
             if not env.alive:
                 shark.alive = False
 
-        # Lifecycle: living breed (1 pup / 2 sharks), then everyone ages a year.
+        # Lifecycle: living breed, then everyone ages a year. Breeding now favours
+        # well-fed sharks (require_food + fitness_weighted) and is paced by each
+        # shark's gestation trait, so reproduction reflects foraging success.
         survived_forage = [s for s in self.population if s.alive]
-        pups = reproduce(self.population, self.rng, self.config.watch_mutation_rate)
+        pups = reproduce(
+            self.population, self.rng, self.config.watch_mutation_rate,
+            require_food=self.config.watch_require_food_to_breed,
+            fitness_weighted=self.config.watch_fitness_weighted_breeding,
+            gestation_divisor=self.config.watch_gestation_divisor,
+        )
         for shark in self.population:
             shark.grow_older()
         survivors = [s for s in self.population if s.alive]
         next_pop = survivors + pups
 
-        # Carrying capacity: overcrowding thins the pod at random (no fitness bias).
+        # Carrying capacity: overcrowding culls the weakest foragers first (the
+        # newborn pups, with no foraging record yet, are spared this cycle).
         cap = self.config.watch_carrying_capacity
         self.culled = max(0, len(next_pop) - cap)
         if self.culled:
-            next_pop = self.view_rng.sample(next_pop, cap)
+            if self.config.watch_cull_weakest:
+                weakest_first = sorted(survivors, key=lambda s: s.last_reward)
+                cull_ids = {id(s) for s in weakest_first[: self.culled]}
+                next_pop = [s for s in next_pop if id(s) not in cull_ids]
+                if len(next_pop) > cap:  # too many pups to fit -> trim the remainder
+                    next_pop = self.view_rng.sample(next_pop, cap)
+            else:
+                next_pop = self.view_rng.sample(next_pop, cap)
 
         # Tally for the HUD.
         self.births = len(pups)
         self.forage_deaths = len(self.population) - len(survived_forage)
         self.oldage_deaths = len(survived_forage) - len(survivors)
+
+        # Record lifecycle events so the death-types chart can plot them.
+        self.births_hist.append(self.births)
+        self.forage_death_hist.append(self.forage_deaths)
+        self.oldage_death_hist.append(self.oldage_deaths)
+        self.cull_hist.append(self.culled)
 
         self.brain.decay_epsilon()
         self.cycle += 1
@@ -265,6 +339,9 @@ class WatchGUI:
                         self.view = "watch" if self.view == "metrics" else "metrics"
                     elif event.key == pygame.K_SPACE:
                         self.paused = not self.paused
+                    elif event.key in (pygame.K_LEFT, pygame.K_RIGHT) and self.view == "watch":
+                        self.page += -1 if event.key == pygame.K_LEFT else 1
+                        self._recompute_shown()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     self._handle_click(event.pos)
             # The simulation keeps running in either view, so the graphs update live.
@@ -349,10 +426,17 @@ class WatchGUI:
         line2 = f"last cycle:  +{self.births} born   {deaths}"
         self.screen.blit(self.small.render(line2, True, TEXT_DIM), (12, 32))
 
-        showing = min(len(self.shown), self.slots)
+        n_pages = max(1, (self.pop_total + self.slots - 1) // self.slots)
+        lo = self.page * self.slots + 1 if self.shown else 0
+        hi = self.page * self.slots + len(self.shown)
+        forage_note = (
+            "all compete for one shared ocean & brain"
+            if self.config.watch_shared_fish_pool
+            else "each forages its own ocean; all share one brain"
+        )
         line3 = (
-            f"Showing {showing} of {self.pop_total}.  Each forages its own ocean; all share one brain.  "
-            "Space pause · M metrics · Q quit"
+            f"Sharks {lo}-{hi} of {self.pop_total}  (page {self.page + 1}/{n_pages}, ←/→).  "
+            f"{forage_note}.  Space pause · M metrics · Q quit"
         )
         if self.extinct:
             line3 = "COLONY EXTINCT — every shark died.  Q quit"
@@ -397,7 +481,8 @@ class WatchGUI:
         dpi = 100
         fig = Figure(figsize=(px_w / dpi, px_h / dpi), dpi=dpi, facecolor=PLOT_FACE)
 
-        n_plots = 1 + len(self.genes)  # fitness + one per evolvable trait
+        # Core panels (fitness, population, deaths, Q-table) + one per trait.
+        n_plots = 4 + len(self.genes)
         cols = 2
         rows = math.ceil(n_plots / cols)
         axes = fig.subplots(rows, cols, squeeze=False)
@@ -417,6 +502,11 @@ class WatchGUI:
                 spine.set_color(AX_SPINE)
             ax.grid(True, color=AX_GRID, linewidth=0.5)
 
+        def _legend(ax):
+            leg = ax.legend(fontsize=6, facecolor=AX_FACE, edgecolor=AX_SPINE)
+            for text in leg.get_texts():
+                text.set_color(TEXT_HEX)
+
         # Fitness: best line, average line, and the population min..max band.
         ax = flat[0]
         ax.fill_between(gens, self.min_hist, self.max_hist,
@@ -424,12 +514,34 @@ class WatchGUI:
         ax.plot(gens, self.best_hist, color=PLOT_BEST, linewidth=1.8, label="best")
         ax.plot(gens, self.avg_hist, color=PLOT_AVG, linewidth=1.2, label="avg")
         _style(ax, "Fitness (reward) over cycles", "reward")
-        leg = ax.legend(fontsize=6, facecolor=AX_FACE, edgecolor=AX_SPINE)
-        for text in leg.get_texts():
-            text.set_color(TEXT_HEX)
+        _legend(ax)
+
+        # Population: colony size each cycle, with the carrying-capacity line.
+        ax = flat[1]
+        ax.plot(gens, self.pop_hist, color=PLOT_POP, linewidth=1.8,
+                marker="o", markersize=2, label="population")
+        ax.axhline(self.config.watch_carrying_capacity, color=PLOT_CULL,
+                   linewidth=0.9, linestyle="--", alpha=0.8, label="capacity")
+        ax.set_ylim(bottom=0)
+        _style(ax, "Population over cycles", "sharks")
+        _legend(ax)
+
+        # Death types (and births) per cycle.
+        ax = flat[2]
+        ax.plot(gens, self.births_hist, color=PLOT_BIRTHS, linewidth=1.4, label="births")
+        ax.plot(gens, self.forage_death_hist, color=PLOT_FORAGE, linewidth=1.4,
+                label="foraging (poison/starve)")
+        ax.plot(gens, self.oldage_death_hist, color=PLOT_OLDAGE, linewidth=1.4, label="old age")
+        ax.plot(gens, self.cull_hist, color=PLOT_CULL, linewidth=1.4, label="overcrowding")
+        ax.set_ylim(bottom=0)
+        _style(ax, "Births & deaths per cycle", "count")
+        _legend(ax)
+
+        # Q-table heatmap: every learned state (row) x action (column).
+        self._draw_qtable_heatmap(fig, flat[3])
 
         # One subplot per evolvable trait: the best shark's value over time.
-        for ax, gene in zip(flat[1:], self.genes):
+        for ax, gene in zip(flat[4:], self.genes):
             spec = SHARK_TRAITS[gene]
             ax.plot(gens, self.trait_hist[gene], color=PLOT_TRAIT,
                     marker="o", markersize=2, linewidth=1.4)
@@ -441,6 +553,48 @@ class WatchGUI:
         canvas.draw()
         w, h = canvas.get_width_height()
         return pygame.image.frombuffer(bytes(canvas.buffer_rgba()), (w, h), "RGBA")
+
+    def _draw_qtable_heatmap(self, fig, ax) -> None:
+        """Render the shared brain's Q-table as a state x action heatmap.
+
+        Rows are the discrete states the brain has visited, columns are the six
+        actions, and colour is the learned Q-value (red = avoid, green = good).
+        Row labels are only drawn when the table is small enough to read.
+        """
+        table = self.brain.q._table
+        ax.set_facecolor(AX_FACE)
+        if not table:
+            ax.set_title("Q-table heatmap", color=TEXT_HEX, fontsize=10)
+            ax.text(0.5, 0.5, "no states learned yet", color=AX_TEXT,
+                    ha="center", va="center", fontsize=8, transform=ax.transAxes)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            return
+
+        states = sorted(table.keys())
+        matrix = np.array([table[s] for s in states], dtype=float)
+        vmax = float(np.abs(matrix).max()) or 1.0
+
+        im = ax.imshow(matrix, aspect="auto", cmap=HEATMAP_CMAP,
+                       vmin=-vmax, vmax=vmax, interpolation="nearest")
+        ax.set_title(f"Q-table heatmap ({len(states)} states)", color=TEXT_HEX, fontsize=10)
+        ax.set_xticks(range(NUM_ACTIONS))
+        ax.set_xticklabels([Action(i).name for i in range(NUM_ACTIONS)],
+                           rotation=45, ha="right", fontsize=6, color=AX_TEXT)
+        # Row labels are unreadable past ~24 states, so only show them when sparse.
+        if len(states) <= 24:
+            ax.set_yticks(range(len(states)))
+            ax.set_yticklabels(["·".join(s) for s in states], fontsize=5, color=AX_TEXT)
+        else:
+            ax.set_yticks([])
+            ax.set_ylabel("state", color=AX_TEXT, fontsize=8)
+        ax.tick_params(colors=AX_TEXT)
+        for spine in ax.spines.values():
+            spine.set_color(AX_SPINE)
+
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.ax.tick_params(colors=AX_TEXT, labelsize=6)
+        cbar.outline.set_edgecolor(AX_SPINE)
 
 
 def run(config: EnvConfig = DEFAULT_CONFIG):
