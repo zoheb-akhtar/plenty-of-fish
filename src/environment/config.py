@@ -62,6 +62,10 @@ class EnvConfig:
     # --- movement (speed trait -> tiles travelled per MOVE action) ------------
     max_extra_move_tiles: int = 2   # speed_norm 1.0 -> 1 + 2 = 3 tiles/step
 
+    # --- fish movement --------------------------------------------------------
+    fish_move: bool = True          # if True, fish random-walk; False = static prey
+    # (fish_move_prob lives in the "prey behaviour" block above)
+
     # --- perception (field_of_perception trait -> how far the shark senses fish) -
     perception_uses_genome: bool = True
     fixed_perception_radius: int = 5
