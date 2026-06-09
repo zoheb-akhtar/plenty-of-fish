@@ -1,4 +1,4 @@
-"""Fish sprites for the GridOcean GUI.
+"""Fish sprites for the ocean GUIs.
 
 Safe fish are green; poisonous fish are purple and carry a ``!`` marker.
 """
@@ -10,6 +10,9 @@ import pygame
 SAFE = (70, 205, 130)
 POISON = (185, 80, 210)
 
+# Body radius as a fraction of the tile, per fish size.
+SIZE_SCALE = {"small": 0.18, "medium": 0.26, "large": 0.34}
+
 _FONT_CACHE: dict[int, pygame.font.Font] = {}
 
 
@@ -20,11 +23,17 @@ def _marker_font(size: int) -> pygame.font.Font:
     return _FONT_CACHE[size]
 
 
-def draw_fish(surface: pygame.Surface, kind: str, center: tuple[int, int], tile: int) -> None:
-    """Draw one fish centred at ``center`` (pixels) on ``surface``."""
+def draw_fish(
+    surface: pygame.Surface,
+    kind: str,
+    center: tuple[int, int],
+    tile: int,
+    size: str = "medium",
+) -> None:
+    """Draw one fish centred at ``center`` (pixels) on ``surface``, scaled by ``size``."""
     cx, cy = center
     color = SAFE if kind == "safe" else POISON
-    r = int(tile * 0.26)
+    r = max(3, int(tile * SIZE_SCALE.get(size, 0.26)))
 
     # body + tail (tail points left, "behind" the body)
     body = pygame.Rect(cx - r, cy - int(r * 0.62), 2 * r, int(r * 1.24))

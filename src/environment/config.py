@@ -1,11 +1,11 @@
-"""Single place to set every GridOcean parameter.
+"""Single place to set every Ocean / GUI parameter.
 
-Edit the defaults below, or build your own ``EnvConfig(...)`` and pass it to
-:class:`~grid_ocean.GridOcean` / the GUI. Nothing else hard-codes these values.
+Edit the defaults here, or build your own ``EnvConfig(...)`` and pass it to
+:class:`~ocean.Ocean` or the GUIs. Nothing else hard-codes these values.
 
-Fish spawn at random free tiles on every ``reset()``. Leave ``seed = None`` for
-a fresh layout each episode; set an int for a reproducible layout (useful for
-RL training / comparing runs).
+Fish spawn at random free tiles on every ``reset()`` (leave ``seed = None`` for
+a fresh layout each life; set an int for reproducible layouts). Shark traits
+turn several of these knobs into per-shark behaviour (see ``ocean.py``).
 """
 
 from __future__ import annotations
@@ -15,28 +15,69 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class EnvConfig:
-    # --- grid & spawning ----------------------------------------------------
-    size: int = 10                      # grid is size x size tiles
-    num_safe_fish: int = 3              # green fish (good to eat)
-    num_poisonous_fish: int = 4         # purple fish (eating ends the episode)
+    # --- grid -----------------------------------------------------------------
+    size: int = 10
     shark_start: tuple[int, int] = (0, 0)
-    seed: int | None = None             # None = random fish each episode; int = reproducible
+    seed: int | None = None
 
-    # --- energy -------------------------------------------------------------
+    # --- fish: how many of each (type, size) spawn at random tiles each reset --
+    num_safe_small: int = 4
+    num_safe_medium: int = 2
+    num_safe_large: int = 1
+    num_poison_small: int = 2
+    num_poison_medium: int = 2
+    num_poison_large: int = 1
+
+    # --- size tiers (one shared scale for the shark's size trait AND fish size) -
+    # Shark ``size`` trait ranges 0.5..9.0: < thresholds[0] -> small(0),
+    # < thresholds[1] -> medium(1), else large(2). Fish sizes map by the same idx.
+    size_tier_thresholds: tuple[float, float] = (3.5, 6.5)
+
+    # --- eating (indexed by the fish's size tier 0=small / 1=medium / 2=large) --
+    eat_reward_by_size: tuple[float, float, float] = (15.0, 25.0, 40.0)
+    eat_energy_by_size: tuple[float, float, float] = (0.20, 0.30, 0.45)
+
+    # --- energy economy -------------------------------------------------------
     start_energy: float = 1.0
-    max_energy: float = 1.0             # energy is capped here when regained
-    move_energy_cost: float = 0.02      # energy lost per non-rest action
-    rest_energy_gain: float = 0.05      # energy regained by resting
-    eat_energy_gain: float = 0.30       # energy regained by eating a safe fish
+    max_energy: float = 1.0
+    base_move_cost: float = 0.015   # baseline energy burned on any non-REST action
+    metab_scale: float = 0.03       # scales the size/speed metabolism term (see ocean.py)
+    rest_energy_gain: float = 0.05
+    tired_energy: float = 0.33      # at/below this the shark is "tired" (matches the "low" state bucket)
 
-    # --- rewards ------------------------------------------------------------
-    step_penalty: float = -0.1          # base reward applied every step
-    eat_reward: float = 25.0            # eating a safe fish
-    poison_penalty: float = -100.0      # attacking a poisonous fish (ends episode)
-    starve_penalty: float = -50.0       # energy reaching zero (ends episode)
+    # --- rewards / penalties --------------------------------------------------
+    step_penalty: float = -0.1
+    poison_penalty: float = -50.0
+    starve_penalty: float = -50.0
 
-    # --- rendering (GUI) ----------------------------------------------------
-    tile_size: int = 60                 # pixels per tile in the pygame window
+    # --- movement (speed trait -> tiles travelled per MOVE action) ------------
+    max_extra_move_tiles: int = 2   # speed_norm 1.0 -> 1 + 2 = 3 tiles/step
+
+    # --- perception (field_of_perception trait -> how far the shark senses fish) -
+    perception_uses_genome: bool = True
+    fixed_perception_radius: int = 5
+
+    # --- rendering / GUI ------------------------------------------------------
+    tile_size: int = 60
+    tick_interval: float = 0.30     # seconds between world ticks (Watch mode + auto)
+    max_steps: int = 300            # per-life step cap
+
+    # --- watch mode (the evolving family) -------------------------------------
+    watch_population_size: int = 12   # founding pod size (kept even: sharks breed in pairs)
+    watch_grid_cols: int = 4
+    watch_mutation_rate: float = 0.2
+    watch_tick_interval: float = 0.05  # seconds between world steps (fast, to watch evolution)
+    watch_max_steps: int = 80          # per-life cap inside Watch (short, so generations turn over)
+
+    # --- watch mode: shark lifecycle (age, reproduction, death) ---------------
+    # The pod grows freely (one pup per two living sharks each cycle) and isn't
+    # culled until it exceeds the carrying capacity, where overcrowding randomly
+    # thins it. The grid only animates ``display_slots`` of them as a window into
+    # the larger population; the rest forage headlessly each cycle.
+    watch_display_slots: int = 12      # mini-oceans shown on screen (4 cols x 3 rows)
+    watch_carrying_capacity: int = 100  # random-cull overcrowding above this many sharks
+    watch_brain_warmup_lives: int = 400  # headless lives to teach the brain before the pod lives
+                                         # (a cold brain dies foraging and the founding pod goes extinct)
 
 
 #: The config used when none is supplied.

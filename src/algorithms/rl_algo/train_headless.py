@@ -1,13 +1,14 @@
-"""Headless Q-learning training on ToyOcean."""
+"""Headless Q-learning training on the Ocean env (default-trait shark)."""
 
 from __future__ import annotations
 
 import csv
 from pathlib import Path
 
+from src.environment.ocean import Ocean
+
 from .family_rl import FamilyRL
 from .state import discretize
-from .toy_env import ToyOcean
 
 EPISODES = 2000
 MAX_STEPS = 200
@@ -32,7 +33,7 @@ def train(
     max_steps: int = MAX_STEPS,
     print_every: int = PRINT_EVERY,
 ) -> tuple[FamilyRL, dict[str, list[float]]]:
-    env = ToyOcean()
+    env = Ocean()
     agent = FamilyRL()
 
     history: dict[str, list[float]] = {
@@ -122,7 +123,7 @@ def plot_training(
     axes[0].axhline(0, color="gray", linestyle="--", linewidth=0.8)
     axes[0].set_ylabel("Total reward")
     axes[0].legend(loc="lower right")
-    axes[0].set_title("Q-learning on ToyOcean")
+    axes[0].set_title("Q-learning on Ocean")
 
     axes[1].plot(episodes, steps, color="seagreen", alpha=0.7)
     axes[1].set_ylabel("Steps per episode")
