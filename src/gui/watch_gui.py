@@ -180,7 +180,10 @@ class WatchGUI:
         """Begin a birth cycle: give every shark an ocean and pick the on-screen window."""
         self.population = population
         self.pop_total = len(population)
-        self.envs = [Ocean(self.config, genome=s.genome, rng=self.rng) for s in population]
+        self.envs = [
+            Ocean(self.config, genome=s.genome, rng=self.rng, body_size=s.size)
+            for s in population
+        ]
 
         # Competition: the whole colony forages ONE shared, depleting fish pool
         # sized to the population (capped by the grid). A fish eaten by one shark
@@ -518,23 +521,28 @@ class WatchGUI:
     def _render_metrics_figure(self, px_w: int, min_h: int) -> pygame.Surface:
         """Draw the per-cycle graphs to a tall pygame surface via matplotlib (Agg).
 
-        The line charts sit two-per-row at the top; the Q-table heatmap gets its
-        own full-width band below so its tiles are big enough to read. The figure
-        is rendered taller than the viewport (``min_h``) so the page scrolls.
+        The smaller line charts sit two-per-row at the top; the fitness chart
+        gets its own full-width row beneath them, and the Q-table heatmap gets a
+        full-width band at the very bottom so its tiles are big enough to read.
+        The figure is rendered taller than the viewport (``min_h``) so it scrolls.
         """
         dpi = 100
 
-        # Line charts: fitness, population, deaths, + one per evolvable trait.
-        n_line = 3 + len(self.genes)
-        line_rows = math.ceil(n_line / 2)
+        # Smaller line charts (two per row): population, deaths, + one per
+        # evolvable trait. Fitness gets its own full-width row just above the
+        # Q-table heatmap, which gets a full-width band at the very bottom.
+        n_small = 2 + len(self.genes)       # population, deaths, + one per trait
+        small_rows = math.ceil(n_small / 2)
+        fit_rows = 1                        # fitness spans a full-width row of its own
         heat_rows = 3                       # grid rows the full-width heatmap spans
-        total_rows = line_rows + heat_rows
+        total_rows = small_rows + fit_rows + heat_rows
         px_h = max(min_h, total_rows * 240)  # ~240 px per grid row → taller than the view
 
         fig = Figure(figsize=(px_w / dpi, px_h / dpi), dpi=dpi, facecolor=PLOT_FACE)
         gs = fig.add_gridspec(total_rows, 2)
-        flat = [fig.add_subplot(gs[i // 2, i % 2]) for i in range(n_line)]
-        ax_heat = fig.add_subplot(gs[line_rows:, :])
+        flat = [fig.add_subplot(gs[i // 2, i % 2]) for i in range(n_small)]
+        ax_fit = fig.add_subplot(gs[small_rows, :])              # full-width fitness row
+        ax_heat = fig.add_subplot(gs[small_rows + fit_rows:, :])  # full-width heatmap band
 
         gens = range(1, len(self.best_hist) + 1)
 
@@ -553,17 +561,8 @@ class WatchGUI:
             for text in leg.get_texts():
                 text.set_color(TEXT_HEX)
 
-        # Fitness: best line, average line, and the population min..max band.
-        ax = flat[0]
-        ax.fill_between(gens, self.min_hist, self.max_hist,
-                        color=PLOT_RANGE, alpha=0.35, label="pop range")
-        ax.plot(gens, self.best_hist, color=PLOT_BEST, linewidth=1.8, label="best")
-        ax.plot(gens, self.avg_hist, color=PLOT_AVG, linewidth=1.2, label="avg")
-        _style(ax, "Fitness (reward) over cycles", "reward")
-        _legend(ax)
-
         # Population: colony size each cycle, with the carrying-capacity line.
-        ax = flat[1]
+        ax = flat[0]
         ax.plot(gens, self.pop_hist, color=PLOT_POP, linewidth=1.8,
                 marker="o", markersize=2, label="population")
         ax.axhline(self.config.watch_carrying_capacity, color=PLOT_CULL,
@@ -573,7 +572,7 @@ class WatchGUI:
         _legend(ax)
 
         # Death types (and births) per cycle.
-        ax = flat[2]
+        ax = flat[1]
         ax.plot(gens, self.births_hist, color=PLOT_BIRTHS, linewidth=1.4, label="births")
         ax.plot(gens, self.forage_death_hist, color=PLOT_FORAGE, linewidth=1.4,
                 label="foraging (poison/starve)")
@@ -585,7 +584,7 @@ class WatchGUI:
 
         # One subplot per evolvable trait: best shark (orange) vs colony average
         # (yellow). The title is just the trait name (e.g. "speed").
-        for ax, gene in zip(flat[3:], self.genes):
+        for ax, gene in zip(flat[2:], self.genes):
             spec = SHARK_TRAITS[gene]
             ax.plot(gens, self.trait_hist[gene], color=PLOT_TRAIT,
                     marker="o", markersize=2, linewidth=1.4, label="best")
@@ -594,6 +593,16 @@ class WatchGUI:
             ax.set_ylim(spec.min_value, spec.max_value)
             _style(ax, gene, spec.unit)
             _legend(ax)
+
+        # Fitness gets its own full-width row at the bottom, just above the
+        # Q-table: best line, average line, and the population min..max band.
+        ax = ax_fit
+        ax.fill_between(gens, self.min_hist, self.max_hist,
+                        color=PLOT_RANGE, alpha=0.35, label="pop range")
+        ax.plot(gens, self.best_hist, color=PLOT_BEST, linewidth=1.8, label="best")
+        ax.plot(gens, self.avg_hist, color=PLOT_AVG, linewidth=1.2, label="avg")
+        _style(ax, "Fitness (reward) over cycles", "reward")
+        _legend(ax)
 
         # Q-table heatmap: every learned state (row) x action (column), in its own
         # full-width band so the tiles are large enough to read.

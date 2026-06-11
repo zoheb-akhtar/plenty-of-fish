@@ -19,9 +19,19 @@ import random
 from dataclasses import dataclass
 
 from .genome import SharkGenome
+from .traits import SHARK_TRAITS
 
 # Sharks live 15 birth cycles (read as "years"); on reaching this age they die.
 MAX_AGE_YEARS = 15
+
+# Sharks are sexually immature until this age -- no breeding before it. A shark
+# is also full-grown at this age (see ``Shark.size``), so maturity is one event.
+MIN_BREEDING_AGE_YEARS = 5
+
+# A newborn's body length as a fraction of its genetic (adult) size; it grows to
+# the full value by ``MIN_BREEDING_AGE_YEARS``. Juveniles are therefore smaller,
+# so they can only eat smaller prey and burn less energy than their genome's adult.
+BIRTH_SIZE_FRACTION = 0.25
 
 
 @dataclass
@@ -39,8 +49,26 @@ class Shark:
 
     @property
     def can_reproduce(self) -> bool:
-        """Only living sharks reproduce -- a dead shark can't breed."""
-        return self.alive
+        """Only living sharks of breeding age reproduce.
+
+        A dead shark can't breed, and a shark younger than
+        ``MIN_BREEDING_AGE_YEARS`` is not yet sexually mature.
+        """
+        return self.alive and self.age >= MIN_BREEDING_AGE_YEARS
+
+    @property
+    def size(self) -> float:
+        """Effective body length right now: the genome's *adult* size scaled by age.
+
+        The genome carries a shark's adult length. A pup starts at
+        ``BIRTH_SIZE_FRACTION`` of it and grows linearly to the full value by
+        ``MIN_BREEDING_AGE_YEARS``; from maturity on it stays adult-sized. The
+        result is clamped to the size trait's legal range.
+        """
+        adult = self.genome.size
+        grown = min(1.0, self.age / max(1, MIN_BREEDING_AGE_YEARS))
+        frac = BIRTH_SIZE_FRACTION + (1.0 - BIRTH_SIZE_FRACTION) * grown
+        return SHARK_TRAITS["size"].clamp(adult * frac)
 
     def record_life(self, reward: float, eaten: int) -> None:
         """Store the outcome of the cycle this shark just foraged."""

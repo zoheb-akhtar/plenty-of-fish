@@ -142,7 +142,7 @@ def live_one_cycle(
     for shark in population:
         if not shark.alive:
             continue
-        env = Ocean(genome=shark.genome, rng=rng)
+        env = Ocean(genome=shark.genome, rng=rng, body_size=shark.size)
         run_life(env, brain, shark.genome, rng, max_steps)
         if not env.alive:
             shark.alive = False  # died foraging -> out of the gene pool this cycle

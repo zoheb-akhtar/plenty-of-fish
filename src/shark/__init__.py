@@ -1,7 +1,14 @@
 """Shark domain model: traits, genome, and the living-shark lifecycle."""
 
 from .genome import SharkGenome
-from .shark import MAX_AGE_YEARS, Shark, advance_cycle, reproduce
+from .shark import (
+    BIRTH_SIZE_FRACTION,
+    MAX_AGE_YEARS,
+    MIN_BREEDING_AGE_YEARS,
+    Shark,
+    advance_cycle,
+    reproduce,
+)
 from .traits import (
     SHARK_TRAITS,
     TraitCategory,
@@ -11,7 +18,9 @@ from .traits import (
 )
 
 __all__ = [
+    "BIRTH_SIZE_FRACTION",
     "MAX_AGE_YEARS",
+    "MIN_BREEDING_AGE_YEARS",
     "SHARK_TRAITS",
     "Shark",
     "SharkGenome",

@@ -172,11 +172,17 @@ class Ocean:
         config: EnvConfig = DEFAULT_CONFIG,
         genome: SharkGenome | None = None,
         rng: random.Random | None = None,
+        *,
+        body_size: float | None = None,
     ):
         self.config = config
         self.genome = genome if genome is not None else SharkGenome.default()
         self.rng = rng if rng is not None else random.Random(config.seed)
         self.size = config.size
+        # Body length this shark forages at. Defaults to the genome's adult size;
+        # the colony passes a living shark's age-scaled size so juveniles forage
+        # smaller (eat smaller prey, burn less energy) than the adult they'll become.
+        self.body_size = self.genome.size if body_size is None else body_size
         self._derive_traits()
 
         self.shark = config.shark_start
@@ -195,9 +201,9 @@ class Ocean:
     # --- trait-derived parameters (computed once from the genome) -------------
     def _derive_traits(self) -> None:
         cfg, g = self.config, self.genome
-        self.size_norm = _norm("size", g.size)
+        self.size_norm = _norm("size", self.body_size)
         self.speed_norm = _norm("speed", g.speed)
-        self.size_tier = _size_tier(g.size, cfg.size_tier_thresholds)
+        self.size_tier = _size_tier(self.body_size, cfg.size_tier_thresholds)
         self.move_tiles = 1 + round(self.speed_norm * cfg.max_extra_move_tiles)
         self.perception = (
             max(1, round(g.field_of_perception)) if cfg.perception_uses_genome

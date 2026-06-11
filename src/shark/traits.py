@@ -71,7 +71,7 @@ _TRAIT_LIST: list[TraitSpec] = [
         evolvable=True,
         mutation_sigma=0.4,
         unit="m",
-        description="Body length. Bigger = stronger/more prey options but slower and hungrier.",
+        description="Adult body length (juveniles grow into it). Bigger = stronger/more prey options but slower and hungrier.",
     ),
     TraitSpec(
         name="speed",
@@ -101,7 +101,7 @@ _TRAIT_LIST: list[TraitSpec] = [
         min_value=4.0,
         max_value=24.0,
         category=TraitCategory.SECONDARY,
-        evolvable=True,
+        evolvable=False,
         mutation_sigma=1.0,
         unit="months",
         description="Time to produce offspring. Shorter = faster breeding, costlier per cycle.",
