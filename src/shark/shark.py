@@ -122,11 +122,13 @@ def reproduce(
     require_food: bool = False,
     fitness_weighted: bool = False,
     gestation_divisor: float | None = None,
+    brood_size: int = 1,
 ) -> list[Shark]:
-    """Breed one age-0 pup per two eligible sharks.
+    """Breed ``brood_size`` age-0 pups per two eligible sharks.
 
-    By default (all flags off) this is the simple rule -- shuffle the living and
-    pair them, one pup per pair. The keyword flags add selection pressure:
+    By default (all flags off, ``brood_size=1``) this is the simple rule --
+    shuffle the living and pair them, one pup per pair. The keyword flags add
+    selection pressure:
 
     * ``gestation_divisor`` -- a shark only breeds if enough cycles have passed
       since its last brood (see :meth:`Shark.ready_to_breed`).
@@ -134,9 +136,13 @@ def reproduce(
       fertile, so foraging success gates reproduction.
     * ``fitness_weighted`` -- parents are drawn with probability proportional to
       how well they foraged, so good hunters leave more offspring.
+    * ``brood_size`` -- pups produced per breeding pair. Each pup is its own
+      crossover+mutation of the pair, so a bigger brood means more genetic shots
+      per pairing, not clones.
 
     Sharks that breed are marked so ``ready_to_breed`` can space out their broods.
     """
+    brood_size = max(1, brood_size)
     breeders = [s for s in population if s.can_reproduce]
     if gestation_divisor is not None:
         breeders = [s for s in breeders if s.ready_to_breed(gestation_divisor)]
@@ -155,21 +161,23 @@ def reproduce(
         weights = [1.0 + 2.0 * s.last_eaten + max(0.0, s.last_reward) for s in breeders]
         for _ in range(n_pairs):
             a, b = _weighted_pair(breeders, weights, rng)
-            pup_genome, _ = SharkGenome.crossover(a.genome, b.genome, rng)
-            if mutation_rate:
-                pup_genome = pup_genome.mutate(mutation_rate, rng)
-            pups.append(Shark(genome=pup_genome))
+            for _ in range(brood_size):
+                pup_genome, _ = SharkGenome.crossover(a.genome, b.genome, rng)
+                if mutation_rate:
+                    pup_genome = pup_genome.mutate(mutation_rate, rng)
+                pups.append(Shark(genome=pup_genome))
             a.mark_bred()
             b.mark_bred()
     else:
         rng.shuffle(breeders)
         for i in range(0, len(breeders) - 1, 2):
-            pup_genome, _ = SharkGenome.crossover(
-                breeders[i].genome, breeders[i + 1].genome, rng
-            )
-            if mutation_rate:
-                pup_genome = pup_genome.mutate(mutation_rate, rng)
-            pups.append(Shark(genome=pup_genome))
+            for _ in range(brood_size):
+                pup_genome, _ = SharkGenome.crossover(
+                    breeders[i].genome, breeders[i + 1].genome, rng
+                )
+                if mutation_rate:
+                    pup_genome = pup_genome.mutate(mutation_rate, rng)
+                pups.append(Shark(genome=pup_genome))
             breeders[i].mark_bred()
             breeders[i + 1].mark_bred()
     return pups

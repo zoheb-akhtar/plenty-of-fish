@@ -107,6 +107,7 @@ class EnvConfig:
     watch_fitness_weighted_breeding: bool = True  # better foragers leave more offspring
     watch_cull_weakest: bool = True       # overcrowding removes the weakest foragers first
     watch_gestation_divisor: float = 6.0  # gestation_period / this = cycles between broods
+    watch_brood_size: int = 2             # pups per breeding pair (2 = "2 sharks per 2 sharks")
 
 
 #: The config used when none is supplied.

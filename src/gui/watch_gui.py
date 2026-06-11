@@ -290,6 +290,7 @@ class WatchGUI:
             require_food=self.config.watch_require_food_to_breed,
             fitness_weighted=self.config.watch_fitness_weighted_breeding,
             gestation_divisor=self.config.watch_gestation_divisor,
+            brood_size=self.config.watch_brood_size,
         )
         for shark in self.population:
             shark.grow_older()
