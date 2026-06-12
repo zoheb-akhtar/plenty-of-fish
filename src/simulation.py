@@ -1,21 +1,10 @@
-"""The bridge between the genetic algorithm and reinforcement learning.
+"""Bridge between the genetic algorithm and reinforcement learning.
 
-The two algorithms work on different timescales and this module joins them:
-
-    * RL (``FamilyRL``) handles **within-life** decisions -- a shark learns, by
-      trial and error in ``ToyOcean``, which actions pay off in which states.
-    * The GA handles **who reproduces** -- it evolves shark genomes.
-
-They meet through behaviour. A genome doesn't change the Q-table; instead its
-temperament *biases which action the shark takes* (the rl-algo README's plan:
-"bias action choice with genome ... not inside the Q-update itself"). A cautious
-shark attacks less and rests more; a bold one attacks more -- which is great when
-the fish is safe and fatal when it's poisonous. A genome's fitness is simply the
-reward its biased behaviour earns, so the GA selects for temperaments that do
-well given what the shared brain has learned.
-
-The brain is created once and **persists across generations**, so behaviour and
-bodies improve together.
+RL (``FamilyRL``) handles within-life decisions; the GA evolves genomes. They
+meet through behaviour: a genome's temperament biases *which action* the shared
+brain takes (not the Q-update itself), so a bold shark attacks more and a cautious
+one rests more. A genome's fitness is the reward its biased behaviour earns. The
+brain persists across generations, so bodies and behaviour improve together.
 """
 from __future__ import annotations
 
@@ -26,9 +15,8 @@ from src.algorithms.rl_algo.state import State
 from src.environment.ocean import Ocean
 from src.shark import SHARK_TRAITS, Shark, SharkGenome, advance_cycle
 
-# How strongly temperament tilts the shark's choices, in Q-value units. ToyOcean
-# pays +25 for a safe meal and -100 for biting poison, so these nudges sway
-# genuinely close calls without overriding a hard-learned "don't eat poison".
+# How strongly temperament tilts choices, in Q-value units. Rewards run +25 for a
+# safe meal and -100 for poison, so these only sway genuinely close calls.
 ATTACK_BIAS = 20.0   # boldness (low caution) -> bite more
 REST_BIAS = 6.0      # caution -> hang back and recover
 
@@ -42,11 +30,9 @@ def _norm(name: str, value: float) -> float:
 def biased_action(
     brain: FamilyRL, state: State, genome: SharkGenome, rng: random.Random
 ) -> Action:
-    """Pick an action: explore like the brain would, else exploit Q nudged by genome.
+    """Pick an action: explore like the brain, else exploit Q nudged by genome.
 
-    The nudge lives entirely in *action selection*. The Q-update afterwards is
-    the plain Bellman update on whatever action was actually taken, so the brain
-    still learns the true value of moves -- the genome only colours the choice.
+    The nudge is only in action selection; the Q-update still learns true values.
     """
     if rng.random() < brain.epsilon:
         return Action(rng.randrange(NUM_ACTIONS))
@@ -98,11 +84,9 @@ def population_fitness(
     max_steps: int = 200,
     lives_per_genome: int = 3,
 ) -> list[float]:
-    """Fitness function for the GA: score every genome by living it in its own Ocean.
+    """GA fitness: score each genome by averaging a few lives in its own Ocean.
 
-    Each genome lives a few times (exploration makes a single life noisy) in its
-    OWN ocean and is scored by its average reward. All lives feed the one shared
-    brain, which decays its exploration once per generation.
+    All lives feed the one shared brain, which decays exploration once per generation.
     """
     fitnesses: list[float] = []
     for genome in genomes:
@@ -123,21 +107,11 @@ def live_one_cycle(
     max_steps: int = 200,
     mutation_rate: float = 0.0,
 ) -> list[Shark]:
-    """Advance the living population by one birth cycle (one "year").
+    """Advance the living population by one birth cycle.
 
-    This is the lifecycle counterpart to ``population_fitness``: instead of just
-    scoring genomes, it lets each living shark *survive or die* in its own ocean,
-    then breeds and ages the survivors. The link to the Shark lifecycle:
-
-      1. Each living shark forages its own ocean for one life (the shared brain
-         learns from every step). A shark that dies there -- starves or bites
-         poison (``env.alive`` goes False) -- is marked dead, so it can't breed.
-      2. The survivors reproduce (one pup per two living sharks) and everyone
-         ages a year; any shark reaching ``MAX_AGE_YEARS`` dies of old age.
-
-    Returns the next population (survivors + this cycle's pups). Because only
-    sharks that survive their ocean get to breed, "good enough" temperaments
-    propagate and the weak are culled -- the population isn't clamped to a size.
+    Each living shark forages its own ocean (the shared brain learns); a shark
+    that dies there can't breed. Survivors then reproduce and age. Returns the
+    next population (survivors + this cycle's pups).
     """
     for shark in population:
         if not shark.alive:
@@ -151,9 +125,8 @@ def live_one_cycle(
 
 
 if __name__ == "__main__":
-    # Show the link in miniature: a bold genome vs. a cautious one, sharing a
-    # brain that has already learned ToyOcean. Boldness should out-eat caution
-    # here (few poison traps), but pay off less as poison density rises.
+    # A bold genome vs. a cautious one sharing a warmed brain; boldness should
+    # out-eat caution here (few poison traps).
     rng = random.Random(0)
     brain = FamilyRL()
 

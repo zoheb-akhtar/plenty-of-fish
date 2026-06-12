@@ -9,20 +9,18 @@ import matplotlib.pyplot as plt
 
 from src.shark import SHARK_TRAITS, SharkGenome, evolvable_traits
 
-# A population-level fitness: score every genome at once. Used to plug in the
-# simulation (see ``src.simulation``) where sharks share an ocean and a brain,
-# so they can't be scored one at a time like the analytical fitness below.
+# Population-level fitness: score every genome at once. Lets the GA plug into the
+# simulation (``src.simulation``), where sharks share an ocean and can't be scored alone.
 PopulationFitness = Callable[[list[SharkGenome]], list[float]]
 
 # Structure follows https://www.datacamp.com/tutorial/genetic-algorithm-python
-# Used claude to integrate traits 
+# Used Claude to integrate traits.
 
 # ---------------------------------------------------------------------------
 # Fitness
 # ---------------------------------------------------------------------------
 def _norm(name: str, value: float) -> float:
-    """Scale a trait value to 0..1 using its spec range, so each gene's
-    contribution to fitness is comparable regardless of its native units."""
+    """Scale a trait value to 0..1 using its spec range, so genes are comparable."""
     spec = SHARK_TRAITS[name]
     return (value - spec.min_value) / spec.span
 
@@ -30,11 +28,8 @@ def _norm(name: str, value: float) -> float:
 def fitness_function(genome: SharkGenome) -> float:
     """Score a shark's survival/foraging trade-off (higher is better).
 
-    coefficent explaination: 
-    * size & speed help catch food, but high caution makes a shark forage less;
-    * being big and fast is metabolically expensive (quadratic cost);
-    * being reckless (low caution) and small is dangerous (predation risk),
-      while caution and size reduce that risk.
+    Size and speed help catch food but cost energy (quadratic); high caution cuts
+    both foraging and predation risk; being small and reckless is dangerous.
     """
     s = _norm("size", genome.size)
     v = _norm("speed", genome.speed)
@@ -63,7 +58,7 @@ def selection(
     rng: random.Random,
     tournament_size: int = 3,
 ) -> list[SharkGenome]:
-    #Tournament selection: each slot is won by the fittest of k random picks.
+    # Tournament selection: each slot is won by the fittest of k random picks.
     selected = []
     paired = list(zip(population, fitnesses))
     for _ in range(len(population)):
@@ -86,10 +81,8 @@ def genetic_algorithm(
 ) -> SharkGenome:
     """Evolve a population of sharks and return the fittest found.
 
-    By default each genome is scored by the analytical ``fitness_function``.
-    Pass ``population_fitness`` to score the whole population another way -- e.g.
-    by living in the ocean (``src.simulation.population_fitness``) -- which lets
-    the GA evolve bodies against an RL-driven simulation instead of a formula.
+    By default genomes are scored by ``fitness_function``; pass
+    ``population_fitness`` to score them another way (e.g. by living in the ocean).
     """
     if population_size % 2 != 0:
         raise ValueError("population_size must be even (sharks breed in pairs).")

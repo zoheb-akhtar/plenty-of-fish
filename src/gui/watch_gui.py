@@ -1,28 +1,15 @@
 """Watch mode: spectate a shark colony live, compete, breed, age, and die.
 
-A colony of sharks forages ONE shared, depleting ocean (a fish eaten by one is
-gone for all of them), all sharing one ``FamilyRL`` brain. Each cycle ("year")
-is one shark lifetime of foraging followed by the :mod:`src.shark.shark`
-lifecycle, with selection pressure layered on top:
+A colony forages ONE shared, depleting ocean (a fish eaten by one is gone for all)
+sharing one ``FamilyRL`` brain. Each cycle is one shark lifetime of foraging plus
+the :mod:`src.shark.shark` lifecycle: foraging deaths leave the gene pool, only
+fed sharks breed (better foragers leave more), all age and die at MAX_AGE_YEARS,
+and overcrowding above the carrying capacity culls the weakest foragers.
 
-  * the brain learns every step (tabular Q-learning);
-  * a shark that dies foraging (starves or bites poison) is out of the gene pool;
-  * only sharks that *ate* breed, better foragers leave more offspring, and each
-    shark's ``gestation_period`` trait spaces out its broods;
-  * everyone ages a year, dying of old age at ``MAX_AGE_YEARS`` (15 cycles);
-  * when the pod exceeds the carrying capacity, overcrowding culls the *weakest*
-    foragers first (newborn pups are spared that cycle).
+The whole colony is simulated; the grid shows up to ``watch_display_slots`` of
+them. The brain is warmed headlessly at startup so the founding pod survives.
 
-So the colony grows on its own merits toward a carrying capacity where food
-competition keeps it in check. The whole colony is simulated, but the grid is a
-fixed viewport that only ever shows up to ``watch_display_slots`` of them (a
-random sample when the pod is larger); the HUD reports the true population.
-
-A cold brain would kill the founding pod before it learns anything, so the brain
-is warmed headlessly at startup (``watch_brain_warmup_lives``) -- you then watch
-a *competent* colony play out its lifecycle.
-
-Run:  python -m src.gui.watch_gui   (or python src/gui/watch_gui.py)
+Run:  python -m src.gui.watch_gui
 Controls: Space pause/resume · M metrics · Q/Esc quit.
 """
 
@@ -87,12 +74,11 @@ HEATMAP_CMAP = "RdYlGn"     # Q-values: red = bad, green = good
 
 
 class WatchGUI:
+    # Set up the window, shared brain, history buffers, and founding pod.
     def __init__(self, config: EnvConfig = DEFAULT_CONFIG):
         self.config = config
 
-        # The whole colony is simulated, but the grid only ever shows up to
-        # ``slots`` of them: a random sample when the population is larger, and
-        # empty (dark blue) cells for the remainder when it is smaller.
+        # Whole colony is simulated; the grid shows up to ``slots`` of them.
         self.slots = config.watch_display_slots
         self.cols = config.watch_grid_cols
         self.rows = math.ceil(self.slots / self.cols)
@@ -126,8 +112,7 @@ class WatchGUI:
 
         # View state: "watch" (the grid) or "metrics" (the live graphs).
         self.view = "watch"
-        # Vertical scroll offset (px) for the metrics page, which is taller than
-        # the window; clamped to the figure height when drawn.
+        # Vertical scroll (px) for the metrics page; clamped when drawn.
         self.metrics_scroll = 0
         # Which page of the colony the grid is showing (←/→ to page through all).
         self.page = 0
@@ -154,19 +139,14 @@ class WatchGUI:
 
         self._warmup_brain(config.watch_brain_warmup_lives)
 
-        # Founding pod: random ages 0..14 so old-age deaths show up from the start
-        # (not only after the first 15 cycles), alongside foraging deaths.
+        # Founding pod: random ages so old-age deaths appear from the start.
         genomes = create_initial_population(config.watch_population_size, self.rng)
         founding = [Shark(g, age=self.rng.randrange(MAX_AGE_YEARS)) for g in genomes]
         self._start_cycle(founding)
 
+    # Pre-train the shared brain on a default shark so the founding pod survives.
+    # A cold brain dies foraging; after warming we drop exploration low, not to zero.
     def _warmup_brain(self, lives: int) -> None:
-        """Teach the shared brain on a default shark so the founding pod can survive.
-
-        Without this the cold (fully exploring) brain dies foraging almost every
-        time and the colony goes extinct in a cycle or two. After warming we drop
-        exploration low so behaviour is competent but not frozen.
-        """
         if lives <= 0:
             return
         warm = SharkGenome.default()
@@ -176,8 +156,8 @@ class WatchGUI:
         self.brain.epsilon = max(self.brain.epsilon_min, 0.1)
 
     # --- cycle lifecycle -----------------------------------------------------
+    # Begin a birth cycle: give every shark an ocean and pick the on-screen window.
     def _start_cycle(self, population: list[Shark]):
-        """Begin a birth cycle: give every shark an ocean and pick the on-screen window."""
         self.population = population
         self.pop_total = len(population)
         self.envs = [
@@ -185,9 +165,8 @@ class WatchGUI:
             for s in population
         ]
 
-        # Competition: the whole colony forages ONE shared, depleting fish pool
-        # sized to the population (capped by the grid). A fish eaten by one shark
-        # is gone for all of them, so good hunters take food from the rest.
+        # The colony forages ONE shared, depleting pool sized to the population
+        # (capped), so good hunters take food from the rest.
         if self.config.watch_shared_fish_pool:
             free_tiles = self.config.size * self.config.size - 1
             target = min(
@@ -216,16 +195,16 @@ class WatchGUI:
         # Fill the grid from the current page so you can ←/→ through the whole pod.
         self._recompute_shown()
 
+    # Pick which sharks the grid shows, based on the current page.
     def _recompute_shown(self) -> None:
-        """Pick which sharks the grid shows, based on the current page."""
         pop = len(self.population)
         max_page = max(0, (pop - 1) // self.slots)
         self.page = max(0, min(self.page, max_page))  # clamp (population shrinks/grows)
         start = self.page * self.slots
         self.shown = list(range(start, min(start + self.slots, pop)))
 
+    # Advance every living shark one foraging step (and learn); roll the cycle when all finish.
     def _tick(self):
-        """Advance every living shark one foraging step (and learn); roll the cycle when all finish."""
         if self.extinct:
             return
         all_done = True
@@ -241,8 +220,7 @@ class WatchGUI:
             self.totals[i] += reward
             if not env.fishes:  # ate everything -> that life is over (survived)
                 env.done = True
-        # The shared pool is colony-owned, so drift/respawn it once per tick here
-        # (each Ocean skips its own fish upkeep when foraging a shared pool).
+        # Drift/respawn the colony-owned shared pool once per tick.
         if self.shared_fishes is not None and not all_done:
             living = {self.envs[i].shark for i, e in enumerate(self.envs) if not e.done}
             advance_fish_pool(
@@ -253,8 +231,8 @@ class WatchGUI:
         if all_done or self.step_in_life >= self.config.watch_max_steps:
             self._end_cycle()
 
+    # Record stats, resolve foraging deaths, breed survivors, age the colony, cull overcrowding.
     def _end_cycle(self):
-        """Record stats, resolve foraging deaths, breed survivors, age the colony, cull overcrowding."""
         fitnesses = list(self.totals)
         self.best_fitness = max(fitnesses)
         self.avg_fitness = sum(fitnesses) / len(fitnesses)
@@ -274,16 +252,13 @@ class WatchGUI:
                 sum(s.genome[gene] for s in self.population) / pop_n
             )
 
-        # Record each shark's foraging outcome, and mark foraging deaths (env.alive
-        # False) out of the gene pool. The recorded reward/food drives who breeds.
+        # Record each shark's outcome; foraging deaths leave the gene pool.
         for i, (shark, env) in enumerate(zip(self.population, self.envs)):
             shark.record_life(self.totals[i], env.eaten)
             if not env.alive:
                 shark.alive = False
 
-        # Lifecycle: living breed, then everyone ages a year. Breeding now favours
-        # well-fed sharks (require_food + fitness_weighted) and is paced by each
-        # shark's gestation trait, so reproduction reflects foraging success.
+        # Living breed (favouring well-fed sharks, paced by gestation), then all age.
         survived_forage = [s for s in self.population if s.alive]
         pups = reproduce(
             self.population, self.rng, self.config.watch_mutation_rate,
@@ -297,8 +272,7 @@ class WatchGUI:
         survivors = [s for s in self.population if s.alive]
         next_pop = survivors + pups
 
-        # Carrying capacity: overcrowding culls the weakest foragers first (the
-        # newborn pups, with no foraging record yet, are spared this cycle).
+        # Overcrowding culls the weakest foragers first; newborn pups are spared.
         cap = self.config.watch_carrying_capacity
         self.culled = max(0, len(next_pop) - cap)
         if self.culled:
@@ -331,6 +305,7 @@ class WatchGUI:
         self._start_cycle(next_pop)
 
     # --- loop ----------------------------------------------------------------
+    # Main loop: handle input, tick the colony, and redraw the active view.
     def run(self):
         running = True
         acc = 0.0
@@ -376,6 +351,7 @@ class WatchGUI:
             pygame.display.flip()
         pygame.quit()
 
+    # Route mouse clicks to the Metrics / Back buttons.
     def _handle_click(self, pos):
         if self.view == "watch" and self.metrics_btn.collidepoint(pos):
             self.view = "metrics"
@@ -383,6 +359,7 @@ class WatchGUI:
             self.view = "watch"
 
     # --- rendering -----------------------------------------------------------
+    # Render the watch grid of mini-oceans plus the HUD.
     def _draw(self):
         self.screen.fill(HUD_BG)
         for cell in range(self.slots):
@@ -394,12 +371,13 @@ class WatchGUI:
                 self._draw_empty_cell(cx, cy)
         self._draw_hud()
 
+    # A vacant slot when the population is smaller than the grid: dark blue.
     def _draw_empty_cell(self, x0: int, y0: int):
-        """A vacant slot when the population is smaller than the grid: dark blue."""
         cell = pygame.Rect(x0 + 1, y0 + 1, self.cell_w - 2, self.cell_h - 2)
         pygame.draw.rect(self.screen, CELL_BG, cell)
         pygame.draw.rect(self.screen, CELL_BORDER, cell, 1)
 
+    # Draw one shark's mini-ocean: fish, shark sprite, dim-if-done, and label.
     def _draw_cell(self, i: int, x0: int, y0: int):
         shark, env = self.population[i], self.envs[i]
         cell = pygame.Rect(x0 + 1, y0 + 1, self.cell_w - 2, self.cell_h - 2)
@@ -430,6 +408,7 @@ class WatchGUI:
         self.screen.blit(self.small.render(tag, True, TEXT_WARN if dead else TEXT), (x0 + 5, y0 + 4))
         pygame.draw.rect(self.screen, CELL_BORDER, cell, 1)
 
+    # Draw the top HUD: cycle stats, last-cycle births/deaths, and paging info.
     def _draw_hud(self):
         best = "—" if math.isnan(self.best_fitness) else f"{self.best_fitness:6.1f}"
         avg = "—" if math.isnan(self.avg_fitness) else f"{self.avg_fitness:6.1f}"
@@ -465,6 +444,7 @@ class WatchGUI:
         self._draw_button(self.metrics_btn, "Metrics >")
 
     # --- buttons / metrics view ----------------------------------------------
+    # Draw a clickable button, highlighted when hovered.
     def _draw_button(self, rect: pygame.Rect, label: str):
         hot = rect.collidepoint(pygame.mouse.get_pos())
         pygame.draw.rect(self.screen, BTN_HOT if hot else BTN_BG, rect, border_radius=6)
@@ -472,6 +452,7 @@ class WatchGUI:
         txt = self.font.render(label, True, TEXT)
         self.screen.blit(txt, txt.get_rect(center=rect.center))
 
+    # Render the scrollable metrics page (cached figure blitted at the scroll offset).
     def _draw_metrics(self):
         self.screen.fill(HUD_BG)
         self._draw_button(self.back_btn, "< Back")
@@ -491,8 +472,7 @@ class WatchGUI:
             self.screen.blit(msg, msg.get_rect(center=(self.width // 2, top + viewport_h // 2)))
             return
 
-        # Re-render the figure only when a new cycle has been recorded. The figure
-        # is taller than the viewport, so we blit it at a scroll offset and clip.
+        # Re-render only on a new cycle; blit at a scroll offset and clip.
         if self._metrics_surf is None or self._metrics_cached_gen != len(self.best_hist):
             self._metrics_surf = self._render_metrics_figure(area_w, viewport_h)
             self._metrics_cached_gen = len(self.best_hist)
@@ -509,8 +489,8 @@ class WatchGUI:
         if max_scroll > 0:
             self._draw_scrollbar(top, viewport_h, surf.get_height(), max_scroll)
 
+    # A thin position indicator on the right edge of the metrics viewport.
     def _draw_scrollbar(self, top: int, viewport_h: int, content_h: int, max_scroll: int):
-        """A thin position indicator on the right edge of the metrics viewport."""
         x = self.width - 9
         pygame.draw.rect(self.screen, (28, 34, 50),
                          pygame.Rect(x, top, 6, viewport_h), border_radius=3)
@@ -519,19 +499,12 @@ class WatchGUI:
         pygame.draw.rect(self.screen, BTN_BORDER,
                          pygame.Rect(x, thumb_y, 6, thumb_h), border_radius=3)
 
+    # Draw the per-cycle graphs to a tall pygame surface via matplotlib (Agg).
+    # Small line charts sit two per row at the top, fitness gets a full-width row,
+    # and the Q-table heatmap a full-width band at the bottom. Taller than the view.
     def _render_metrics_figure(self, px_w: int, min_h: int) -> pygame.Surface:
-        """Draw the per-cycle graphs to a tall pygame surface via matplotlib (Agg).
-
-        The smaller line charts sit two-per-row at the top; the fitness chart
-        gets its own full-width row beneath them, and the Q-table heatmap gets a
-        full-width band at the very bottom so its tiles are big enough to read.
-        The figure is rendered taller than the viewport (``min_h``) so it scrolls.
-        """
         dpi = 100
 
-        # Smaller line charts (two per row): population, deaths, + one per
-        # evolvable trait. Fitness gets its own full-width row just above the
-        # Q-table heatmap, which gets a full-width band at the very bottom.
         n_small = 2 + len(self.genes)       # population, deaths, + one per trait
         small_rows = math.ceil(n_small / 2)
         fit_rows = 1                        # fitness spans a full-width row of its own
@@ -547,6 +520,7 @@ class WatchGUI:
 
         gens = range(1, len(self.best_hist) + 1)
 
+        # Apply the shared dark theme (title, labels, ticks, grid) to one axes.
         def _style(ax, title: str, ylabel: str):
             ax.set_title(title, color=TEXT_HEX, fontsize=10)
             ax.set_xlabel("cycle", color=AX_TEXT, fontsize=8)
@@ -557,6 +531,7 @@ class WatchGUI:
                 spine.set_color(AX_SPINE)
             ax.grid(True, color=AX_GRID, linewidth=0.5)
 
+        # Add a legend styled for the dark theme.
         def _legend(ax):
             leg = ax.legend(fontsize=6, facecolor=AX_FACE, edgecolor=AX_SPINE)
             for text in leg.get_texts():
@@ -583,8 +558,7 @@ class WatchGUI:
         _style(ax, "Births & deaths per cycle", "count")
         _legend(ax)
 
-        # One subplot per evolvable trait: best shark (orange) vs colony average
-        # (yellow). The title is just the trait name (e.g. "speed").
+        # One subplot per evolvable trait: best shark vs colony average.
         for ax, gene in zip(flat[2:], self.genes):
             spec = SHARK_TRAITS[gene]
             ax.plot(gens, self.trait_hist[gene], color=PLOT_TRAIT,
@@ -595,8 +569,7 @@ class WatchGUI:
             _style(ax, gene, spec.unit)
             _legend(ax)
 
-        # Fitness gets its own full-width row at the bottom, just above the
-        # Q-table: best line, average line, and the population min..max band.
+        # Fitness full-width row: best, average, and the population min..max band.
         ax = ax_fit
         ax.fill_between(gens, self.min_hist, self.max_hist,
                         color=PLOT_RANGE, alpha=0.35, label="pop range")
@@ -605,8 +578,7 @@ class WatchGUI:
         _style(ax, "Fitness (reward) over cycles", "reward")
         _legend(ax)
 
-        # Q-table heatmap: every learned state (row) x action (column), in its own
-        # full-width band so the tiles are large enough to read.
+        # Q-table heatmap in its own full-width band so tiles are readable.
         self._draw_qtable_heatmap(fig, ax_heat)
 
         fig.tight_layout(pad=1.4)
@@ -615,13 +587,10 @@ class WatchGUI:
         w, h = canvas.get_width_height()
         return pygame.image.frombuffer(bytes(canvas.buffer_rgba()), (w, h), "RGBA")
 
+    # Render the shared brain's Q-table as a state x action heatmap.
+    # Colour is the learned Q-value (red = avoid, green = good); row labels show
+    # only when the table is small enough to read.
     def _draw_qtable_heatmap(self, fig, ax) -> None:
-        """Render the shared brain's Q-table as a state x action heatmap.
-
-        Rows are the discrete states the brain has visited, columns are the six
-        actions, and colour is the learned Q-value (red = avoid, green = good).
-        Row labels are only drawn when the table is small enough to read.
-        """
         table = self.brain.q._table
         ax.set_facecolor(AX_FACE)
         if not table:
@@ -642,8 +611,7 @@ class WatchGUI:
         ax.set_xticks(range(NUM_ACTIONS))
         ax.set_xticklabels([Action(i).name for i in range(NUM_ACTIONS)],
                            rotation=45, ha="right", fontsize=6, color=AX_TEXT)
-        # Outline each tile with thin gridlines so individual cells are readable
-        # (skip when there are so many states the lines would smother the colour).
+        # Outline tiles with gridlines when sparse enough to stay readable.
         if len(states) <= 60:
             ax.set_xticks(np.arange(-0.5, NUM_ACTIONS, 1), minor=True)
             ax.set_yticks(np.arange(-0.5, len(states), 1), minor=True)
@@ -665,6 +633,7 @@ class WatchGUI:
         cbar.outline.set_edgecolor(AX_SPINE)
 
 
+# Launch the watch GUI.
 def run(config: EnvConfig = DEFAULT_CONFIG):
     WatchGUI(config).run()
 

@@ -1,12 +1,9 @@
 """Play mode: control one shark in its own ocean (see ocean.py).
 
-The shark's traits are randomised each run and shape how it plays:
-  * size sets which fish you can eat (the biggest give the most energy),
-  * speed sets how many tiles you cover per move,
-  * perception sets how far you sense fish (the ring around you).
+Traits are randomised each run: size sets which fish you can eat, speed sets tiles
+per move, perception sets how far you sense fish.
 
-Run:  python -m src.gui.gui   (or python src/gui/gui.py)
-
+Run:  python -m src.gui.gui
 Controls: Arrows/WASD move, Space attack, E rest, R new shark, Q/Esc quit.
 """
 
@@ -51,12 +48,14 @@ FACING_ANGLE = {Action.RIGHT: 0, Action.UP: 90, Action.LEFT: 180, Action.DOWN: 2
 TIER_LABEL = ("small", "medium", "large")
 
 
+# Linear blend between two RGB colors at t in 0..1.
 def _lerp(a, b, t):
     t = max(0.0, min(1.0, t))
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
 
 class PlayGUI:
+    # Set up the window, fonts, seabed, and the first shark.
     def __init__(self, config: EnvConfig = DEFAULT_CONFIG):
         self.config = config
         self.tile = config.tile_size
@@ -75,6 +74,7 @@ class PlayGUI:
         self.rng = random.Random(config.seed)
         self._new_shark()
 
+    # Roll a fresh random shark + ocean and reset the per-episode stats.
     def _new_shark(self):
         self.genome = SharkGenome.random(self.rng)
         self.env = Ocean(self.config, genome=self.genome, rng=self.rng)
@@ -85,9 +85,11 @@ class PlayGUI:
         self.steps = 0
         self.result = ""
 
+    # True once the episode is over (shark dead or all fish eaten).
     def _over(self) -> bool:
         return self.env.done or not self.env.fishes
 
+    # Apply one action, accumulate reward, and set the end-of-episode message.
     def _apply(self, action: Action):
         if self._over():
             return
@@ -101,6 +103,7 @@ class PlayGUI:
             self.result = "All fish eaten!"
 
     # --- loop ----------------------------------------------------------------
+    # Main loop: handle input, step the sim, and redraw at 60 FPS.
     def run(self):
         running = True
         while running:
@@ -120,9 +123,11 @@ class PlayGUI:
         pygame.quit()
 
     # --- rendering -----------------------------------------------------------
+    # Pixel center of tile (tx, ty) in the play area.
     def _center(self, tx, ty):
         return (tx * self.tile + self.tile // 2, ty * self.tile + self.tile // 2)
 
+    # Render one frame: seabed, perception ring, attack reach, fish, shark, HUD.
     def _draw(self):
         self.screen.fill(HUD_BG)
         play = self.screen.subsurface((0, HUD_H, self.grid_px, self.grid_px))
@@ -156,6 +161,7 @@ class PlayGUI:
         if self._over():
             self._draw_overlay()
 
+    # Draw the top HUD: energy bar, traits, score, and the controls line.
     def _draw_hud(self):
         g, env = self.genome, self.env
         energy = max(0.0, env.energy)
@@ -177,6 +183,7 @@ class PlayGUI:
         controls = "Arrows/WASD move  ·  Space attack  ·  E rest  ·  R new shark  ·  Q quit"
         self.screen.blit(self.small.render(controls, True, TEXT_DIM), (12, 88))
 
+    # Dim the play area and show the end-of-episode message.
     def _draw_overlay(self):
         veil = pygame.Surface((self.grid_px, self.grid_px), pygame.SRCALPHA)
         veil.fill((0, 0, 0, 150))
@@ -188,6 +195,7 @@ class PlayGUI:
         self.screen.blit(hint, hint.get_rect(center=(cx, cy + 28)))
 
 
+# Launch the play GUI.
 def run():
     PlayGUI().run()
 

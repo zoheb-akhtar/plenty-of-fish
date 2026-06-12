@@ -12,58 +12,51 @@ class SharkGenome:
     values: dict[str, float]
 
     # --- constructors ------------------------------------------------------
+    # Build a genome with every gene at its default value.
     @classmethod
     def default(cls) -> "SharkGenome":
         return cls({name: spec.default for name, spec in SHARK_TRAITS.items()})
 
+    # Build a genome with every gene at a fresh uniform-random value.
     @classmethod
     def random(cls, rng: random.Random = random) -> "SharkGenome":
         return cls({name: spec.random_value(rng) for name, spec in SHARK_TRAITS.items()})
 
+    # Randomise only the evolvable genes; keep the rest at defaults (GA seed).
     @classmethod
     def random_evolvable(cls, rng: random.Random = random) -> "SharkGenome":
-        """Randomise only the *evolvable* genes; keep the rest at their defaults.
-
-        Use this to seed the GA: it makes a controlled experiment where just the
-        traits under search (size/speed/caution) vary across individuals, while
-        non-evolvable traits hold their defaults until you switch them on.
-        """
         values = {name: spec.default for name, spec in SHARK_TRAITS.items()}
         for name in evolvable_traits():
             values[name] = SHARK_TRAITS[name].random_value(rng)
         return cls(values)
 
     # --- access ------------------------------------------------------------
+    # Trait value by name (genome["size"]).
     def __getitem__(self, name: str) -> float:
         return self.values[name]
 
+    # Fallback lookup: exposes trait values (genome.size) without shadowing real attrs.
     def __getattr__(self, name: str) -> float:
-        # Only consulted when normal attribute lookup fails, so this exposes
-        # trait values (genome.size) without shadowing real attributes.
         try:
             return self.__dict__["values"][name]
         except KeyError as exc:
             raise AttributeError(name) from exc
 
+    # This shark's RGB colour, derived from its ``color_hue`` gene.
     def color(self) -> tuple[int, int, int]:
-        """This shark's RGB colour, derived from its ``color_hue`` gene."""
         return color_rgb(self.values["color_hue"])
 
     # --- GA bridge ---------------------------------------------------------
+    # Flatten the *evolvable* genes into an ordered list for the GA.
     def as_vector(self) -> list[float]:
-        """Flatten the *evolvable* genes into an ordered list for the GA."""
         return [self.values[name] for name in evolvable_traits()]
 
+    # Rebuild a genome from a GA vector of evolvable genes (clamped to range).
+    # Non-evolvable traits come from ``base`` (or defaults).
     @classmethod
     def from_vector(
         cls, vector: Sequence[float], base: "SharkGenome | None" = None
     ) -> "SharkGenome":
-        """Rebuild a genome from a GA vector of evolvable genes.
-
-        Non-evolvable traits are taken from ``base`` (or their defaults), so the
-        round-trip ``as_vector`` -> ``from_vector`` only ever rewrites the genes
-        the GA is allowed to change. Incoming values are clamped to range.
-        """
         base = base or cls.default()
         values = dict(base.values)
         for name, raw in zip(evolvable_traits(), vector):
@@ -71,24 +64,21 @@ class SharkGenome:
         return cls(values)
 
     # --- evolution ---------------------------------------------------------
+    # Return a mutated copy. Only evolvable genes can change.
     def mutate(self, mutation_rate: float, rng: random.Random = random) -> "SharkGenome":
-        """Return a mutated copy. Only evolvable genes can change."""
         values = dict(self.values)
         for name in evolvable_traits():
             if rng.random() < mutation_rate:
                 values[name] = SHARK_TRAITS[name].mutate(values[name], rng)
         return SharkGenome(values)
 
+    # Blend two parents into two children (arithmetic crossover, clamped).
+    # Evolvable genes blend with a random weight; non-evolvable genes are
+    # inherited unchanged from the matching parent.
     @classmethod
     def crossover(
         cls, parent_a: "SharkGenome", parent_b: "SharkGenome", rng: random.Random = random
     ) -> tuple["SharkGenome", "SharkGenome"]:
-        """Blend two parents into two children (whole-genome arithmetic crossover).
-
-        Evolvable genes are blended with a random weight; non-evolvable genes are
-        inherited unchanged from the matching parent so they never drift via the
-        GA. All children stay in range.
-        """
         alpha = rng.random()
         child_a, child_b = dict(parent_a.values), dict(parent_b.values)
         for name in evolvable_traits():

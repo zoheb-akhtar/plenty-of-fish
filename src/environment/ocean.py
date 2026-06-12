@@ -44,12 +44,13 @@ class Fish:
     pos: tuple[int, int]
 
 
+# Scale a trait to 0..1 using its declared range (same idea as genetic_algo._norm).
 def _norm(name: str, value: float) -> float:
-    """Scale a trait to 0..1 using its declared range (same idea as genetic_algo._norm)."""
     spec = SHARK_TRAITS[name]
     return (value - spec.min_value) / spec.span
 
 
+# Bucket a size value into 0=small / 1=medium / 2=large by the thresholds.
 def _size_tier(size_value: float, thresholds: tuple[float, float]) -> int:
     lo, hi = thresholds
     if size_value < lo:
@@ -59,8 +60,8 @@ def _size_tier(size_value: float, thresholds: tuple[float, float]) -> int:
     return 2
 
 
+# The configured (kind, size, count) make-up of a fresh fish set.
 def _fish_spec(cfg: EnvConfig) -> list[tuple[str, str, int]]:
-    """The configured (kind, size, count) make-up of a fresh fish set."""
     return [
         ("safe", "small", cfg.num_safe_small),
         ("safe", "medium", cfg.num_safe_medium),
@@ -71,8 +72,8 @@ def _fish_spec(cfg: EnvConfig) -> list[tuple[str, str, int]]:
     ]
 
 
+# Scale the configured counts to roughly ``target_total`` fish, same mix.
 def _scaled_counts(spec: list[tuple[str, str, int]], target_total: int) -> list[tuple[str, str, int]]:
-    """Scale the configured counts to roughly ``target_total`` fish, same mix."""
     base_total = sum(n for *_, n in spec)
     if base_total == 0 or target_total <= 0:
         return spec
@@ -84,26 +85,22 @@ def _scaled_counts(spec: list[tuple[str, str, int]], target_total: int) -> list[
     return scaled
 
 
+# A fresh fish whose (kind, size) follows the configured spawn mix.
 def _random_fish_at(cfg: EnvConfig, rng: random.Random, pos: tuple[int, int]) -> "Fish":
-    """A fresh fish whose (kind, size) follows the configured spawn mix."""
     pool = [(k, s) for k, s, n in _fish_spec(cfg) for _ in range(n)]
     kind, size = rng.choice(pool) if pool else ("safe", "small")
     return Fish(kind, size, pos)
 
 
+# Place a fish set on random free tiles.
+# ``target_total`` scales the configured mix (for the colony's shared pool);
+# ``None`` uses the exact configured counts. Total is clamped to the free tiles.
 def spawn_fish(
     cfg: EnvConfig,
     rng: random.Random,
     target_total: int | None = None,
     exclude: tuple[tuple[int, int], ...] | set = (),
 ) -> list["Fish"]:
-    """Place a fish set on random free tiles.
-
-    ``target_total`` scales the configured mix up/down (used for the colony's
-    shared, population-sized pool); when ``None`` the exact configured counts are
-    used. The total is clamped to the number of free tiles so a big shared pool
-    can never overflow the grid.
-    """
     spec = _fish_spec(cfg)
     if target_total is not None:
         spec = _scaled_counts(spec, target_total)
@@ -128,6 +125,8 @@ def spawn_fish(
     return fishes
 
 
+# Drift some fish one tile and occasionally respawn toward target.
+# Mutates ``fishes`` in place; ``blocked`` tiles are avoided on respawn. Call once per tick.
 def advance_fish_pool(
     fishes: list["Fish"],
     cfg: EnvConfig,
@@ -136,11 +135,6 @@ def advance_fish_pool(
     target: int | None = None,
     blocked: tuple[tuple[int, int], ...] | set = (),
 ) -> None:
-    """Drift fish one tile (some of them) and occasionally respawn toward target.
-
-    Mutates ``fishes`` in place. ``blocked`` tiles (e.g. shark positions) are
-    avoided when respawning. Call once per world tick.
-    """
     occupied = {f.pos for f in fishes}
     if cfg.fish_move_prob > 0:
         for f in fishes:
@@ -167,6 +161,7 @@ def advance_fish_pool(
 class Ocean:
     """Single-shark grid world. ``(x, y)`` with x rightward, y downward."""
 
+    # Set up the world from the config + genome (or a colony-supplied body size).
     def __init__(
         self,
         config: EnvConfig = DEFAULT_CONFIG,
@@ -179,9 +174,8 @@ class Ocean:
         self.genome = genome if genome is not None else SharkGenome.default()
         self.rng = rng if rng is not None else random.Random(config.seed)
         self.size = config.size
-        # Body length this shark forages at. Defaults to the genome's adult size;
-        # the colony passes a living shark's age-scaled size so juveniles forage
-        # smaller (eat smaller prey, burn less energy) than the adult they'll become.
+        # Length this shark forages at: the genome's adult size, or an age-scaled
+        # size the colony passes so juveniles forage smaller.
         self.body_size = self.genome.size if body_size is None else body_size
         self._derive_traits()
 
@@ -192,13 +186,13 @@ class Ocean:
         self.eaten = 0
         self.fishes: list[Fish] = []
         self.done = False
-        # When the colony shares one fish pool, an Ocean reads/eats from it but
-        # doesn't own it: it won't spawn or drift the fish (the colony does that
-        # once per tick). A solo Ocean owns its fish and manages them itself.
+        # A solo Ocean owns and manages its fish; when foraging a shared colony
+        # pool it only reads/eats (the colony drifts and respawns it).
         self.owns_fish = True
         self._fish_target = 0
 
     # --- trait-derived parameters (computed once from the genome) -------------
+    # Precompute the trait-driven parameters (tiers, move distance, sight, metabolism).
     def _derive_traits(self) -> None:
         cfg, g = self.config, self.genome
         self.size_norm = _norm("size", self.body_size)
@@ -214,6 +208,7 @@ class Ocean:
         self.step_cost = cfg.base_move_cost + cfg.metab_scale * metab
 
     # --- episode lifecycle ----------------------------------------------------
+    # Start a new life: reset shark state and either spawn or adopt a shared fish set.
     def reset(self, shared_fishes: list[Fish] | None = None) -> dict:
         if self.config.seed is not None:
             self.rng.seed(self.config.seed)
@@ -233,11 +228,12 @@ class Ocean:
             self._fish_target = len(self.fishes)
         return self.observe()
 
+    # Spawn this ocean's own fish set at random free tiles.
     def _spawn_fish(self) -> list[Fish]:
         return spawn_fish(self.config, self.rng, exclude={self.config.shark_start})
 
+    # Drift/respawn this ocean's own fish one tick (no-op for shared pools).
     def advance_fish(self) -> None:
-        """Drift/respawn this ocean's own fish one tick (no-op for shared pools)."""
         if not self.owns_fish:
             return
         advance_fish_pool(
@@ -245,8 +241,8 @@ class Ocean:
             target=self._fish_target, blocked={self.shark},
         )
 
+    # Advance one timestep. Returns ``(obs, reward, done)`` (done = shark died).
     def step(self, action: Action) -> tuple[dict, float, bool]:
-        """Advance one timestep. Returns ``(obs, reward, done)`` (done = shark died)."""
         if self.done:
             return self.observe(), 0.0, True
 
@@ -261,8 +257,7 @@ class Ocean:
 
         if not self.done:  # poison death short-circuits the energy economy
             if action == Action.REST:
-                # Resting recovers energy, but a shark still burns some just
-                # staying alive -- so idling forever can't sustain it.
+                # Resting recovers energy but still burns some, so idling can't sustain a shark.
                 self.energy = min(
                     cfg.max_energy,
                     self.energy + cfg.rest_energy_gain - cfg.rest_passive_cost,
@@ -280,6 +275,7 @@ class Ocean:
 
         return self.observe(), reward, self.done
 
+    # Step the shark up to move_tiles in the action's direction, clamped to the grid.
     def _move(self, action: Action) -> None:
         dx, dy = _DELTA[action]
         x, y = self.shark
@@ -291,14 +287,13 @@ class Ocean:
                 break
         self.shark = (x, y)
 
+    # Resolve an attack on a reachable tile: take poison or eat edible safe prey.
     def _attack(self) -> float:
         cfg = self.config
         reachable = [f for f in self.fishes if self.in_reach(f.pos)]
         poison = next((f for f in reachable if f.kind == "poisonous"), None)
         if poison is not None:
-            # Eating poison halves the shark's health. It survives the bite unless
-            # it was already tired (low energy) or has gorged on 2+ fish, in which
-            # case the poison finishes it off.
+            # Poison halves health; fatal only if already tired or gorged on 2+ fish.
             fatal = self.energy <= cfg.tired_energy or self.eaten >= 2
             self.energy *= 0.5
             self.fishes.remove(poison)
@@ -320,15 +315,17 @@ class Ocean:
             return cfg.eat_reward_by_size[tier]
         return cfg.step_penalty  # nothing edible in reach (or fish too big): wasted attack
 
+    # Can the shark attack a fish here? On its own tile or one step away.
     def in_reach(self, pos: tuple[int, int]) -> bool:
-        """Can the shark attack a fish here? On its own tile or one step away."""
         sx, sy = self.shark
         return abs(sx - pos[0]) + abs(sy - pos[1]) <= 1
 
     # --- observation (discretize-compatible) ----------------------------------
+    # Current observation: energy plus the nearest sensed fish.
     def observe(self) -> dict:
         return {"energy": max(0.0, self.energy), "nearest_fish": self._nearest_fish()}
 
+    # Find the closest fish within perception as a type/distance/direction dict.
     def _nearest_fish(self) -> dict:
         sx, sy = self.shark
         best, best_d = None, 10**9
