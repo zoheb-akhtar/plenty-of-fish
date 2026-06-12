@@ -10,8 +10,8 @@ behaviour improve together.
 A shark lives on a tile grid (the `Ocean`) scattered with safe and poisonous
 fish of different sizes. Each step it can move, attack, or rest; it spends energy
 to move and dies if it starves or bites poison while weak. The goal is a family
-of sharks whose **traits** (size, speed, caution, aggression, breeding cadence)
-and **behaviour** (when to hunt vs. hang back) together earn the most reward.
+of sharks whose **traits** (size, speed, caution, aggression) and **behaviour**
+(when to hunt vs. hang back) together earn the most reward.
 
 Two algorithms tackle this on two different timescales and meet through behaviour:
 
@@ -22,8 +22,8 @@ Two algorithms tackle this on two different timescales and meet through behaviou
   `discretize()` before they touch the table.
 - **GA — who reproduces.** The GA evolves genomes (tournament selection +
   arithmetic crossover + Gaussian mutation, with elitism). Only the *evolvable*
-  traits — `size`, `speed`, `caution`, `gestation_period`, `aggression` — vary;
-  the rest hold their defaults.
+  traits — `size`, `speed`, `caution`, `aggression` — vary; the rest hold their
+  defaults.
 
 The link is deliberate: **a genome never edits the Q-table.** Instead a shark's
 temperament *biases which action it picks* (`biased_action` in
@@ -52,23 +52,23 @@ multi-agent RL.
 shark's evolvable traits and its fitness (reward earned in the `Ocean`):
 
 ```
-Gen |  Size | Speed | Caution | Gestation_period | Aggression | Fitness
-----+-------+-------+---------+------------------+------------+--------
-  1 | 6.114 | 9.872 |   0.281 |           12.000 |      0.500 | 41.3333
-  2 | 6.114 | 9.872 |   0.281 |           11.842 |      0.504 | 47.0000
+Gen |  Size |  Speed | Caution | Aggression | Fitness
+----+-------+--------+---------+------------+--------
+  1 | 6.940 | 10.644 |   0.923 |      0.842 | -1.5000
+  2 | 7.018 |  4.933 |   0.847 |      0.585 |  1.8000
 ...
- 30 | 7.248 | 8.795 |   0.634 |            9.310 |      0.688 | 58.6667
+ 30 | 7.096 |  8.038 |   0.349 |      0.532 | 52.0667
 ```
 
 …then prints the winning shark's full trait set:
 
 ```
 Best shark found (judged by reward earned in the Ocean env):
-  size                  7.248 (evolved)
-  speed                 8.795 (evolved)
-  caution               0.634 (evolved)
-  gestation_period      9.310 (evolved)
-  aggression            0.688 (evolved)
+  size                  6.980 (evolved)
+  speed                 7.840 (evolved)
+  caution               0.531 (evolved)
+  gestation_period      12.000
+  aggression            0.588 (evolved)
   field_of_perception   5.000
   color_hue             205.000
 ```
