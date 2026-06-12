@@ -32,7 +32,7 @@ generations, so over a run the bodies and the behaviour co-adapt.
 
 ### Background/Importance
 
-The blue shark (Prionace glauca) is one of the most widely and highly fished sharks on Earth and is the only living member of its genus, so its persistence is entirely based on how well this  species can adapt to changing oceans [1]. In nature, adaptation and evolution run on two interleaved timescales; evolution slowly reshapes the body across generations, while learning rapidly reshapes behavior within a single life. In blue sharks, live young leave their mothers after birth and do not inherit instructions, but we wanted to approach this question with what if families could pass down data the way humans pass down stories through generations? 
+The blue shark (Prionace glauca) is one of the most widely and highly fished sharks on Earth and is the only living member of its genus, so its persistence is entirely based on how well this  species can adapt to changing oceans. In nature, adaptation and evolution run on two interleaved timescales; evolution slowly reshapes the body across generations, while learning rapidly reshapes behavior within a single life. In blue sharks, live young leave their mothers after birth and do not inherit instructions, but we wanted to approach this question with what if families could pass down data the way humans pass down stories through generations? 
 
 ### Sample Outputs
 Sample output after the command python -m src.main --watch, which shows you the GUI of the sharks hunting and their related metrics as they continue to reproduce. 
