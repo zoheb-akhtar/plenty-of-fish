@@ -32,15 +32,7 @@ generations, so over a run the bodies and the behaviour co-adapt.
 
 ### Background/Importance
 
-Most projects pick one paradigm: evolve a controller, *or* train an agent. Here
-they run together, the way nature actually layers them — evolution shapes the
-body over generations, learning shapes behaviour within a single life. Keeping
-the genome out of the Q-update (it only colours action *selection*) is what lets
-the two coexist without one corrupting the other, and it mirrors the biology:
-genes bias temperament, experience does the fine-grained learning. The result is
-a compact, readable sandbox for studying how morphology and learned behaviour
-co-adapt — relevant to artificial life, evolutionary computation, and
-multi-agent RL.
+The blue shark (Prionace glauca) is one of the most widely and highly fished sharks on Earth and is the only living member of its genus, so its persistence is entirely based on how well this  species can adapt to changing oceans [1]. In nature, adaptation and evolution run on two interleaved timescales; evolution slowly reshapes the body across generations, while learning rapidly reshapes behavior within a single life. In blue sharks, live young leave their mothers after birth and do not inherit instructions, but we wanted to approach this question with what if families could pass down data the way humans pass down stories through generations? 
 
 ### Sample Outputs
 
