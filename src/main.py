@@ -1,4 +1,6 @@
-"""Plenty of Fish -- entry point fitting the GA and RL together.
+"""Plenty of Fish -- entry point that fits the GA and RL together.
+
+Used Claude and Cursor to help me write this code.
 
 The GA evolves shark genomes; one shared RL brain learns to behave in the Ocean;
 each genome is scored by the reward its temperament earns (see ``src.simulation``).
