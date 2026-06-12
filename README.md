@@ -65,28 +65,29 @@ shark yourself. The standalone RL trainer also saves a learning curve to
 plenty-of-fish/
 ├── Makefile                     # housekeeping: make clean / help
 ├── README.md
+├── experiments
 └── src/
     ├── main.py                  # entry point — wires GA + RL together (CLI below)
-    ├── simulation.py            # the bridge: genome biases action choice; fitness = reward
+    ├── simulation.py            
     ├── algorithms/
     │   ├── genetic_algo.py      # GA: population, selection, crossover, mutation, plots
     │   └── rl_algo/             # reinforcement-learning "family brain"
-    │       ├── actions.py       # the 6 actions (up/down/left/right/attack/rest)
-    │       ├── state.py         # bucket an observation into a discrete Q-table key
-    │       ├── q_table.py       # the Q-value store
+    │       ├── actions.py       
+    │       ├── state.py         
+    │       ├── q_table.py       
     │       ├── family_rl.py     # epsilon-greedy tabular Q-learning agent (shared table)
-    │       ├── toy_env.py       # original practice grid (superseded by Ocean)
-    │       ├── train_headless.py# standalone RL trainer (plot + CSV)
+    │       ├── toy_env.py       
+    │       ├── train_headless.py
     │       └── README.md        # notes on the RL side
-    ├── environment/             # the world (pure Python, no pygame)
+    ├── environment/             # ocean environment built out 
     │   ├── config.py            # EnvConfig — every Ocean/GUI knob in one place
-    │   └── ocean.py             # the world: one shark foraging among sized fish
+    │   └── ocean.py             
     ├── gui/                     # pygame rendering (only needed for --watch / --play)
     │   ├── gui.py               # Play mode (control one shark)
     │   ├── watch_gui.py         # Watch mode (spectate the family evolve)
-    │   ├── seabed.py            # seabed tile renderer
-    │   ├── fish_drawing.py      # fish sprites
-    │   └── shark_drawing.py     # shark sprites
+    │   ├── seabed.py            
+    │   ├── fish_drawing.py      
+    │   └── shark_drawing.py     
     └── shark/
         ├── traits.py            # the trait registry (ranges, defaults, evolvable flag)
         ├── genome.py            # SharkGenome — trait values + GA operators
@@ -95,7 +96,7 @@ plenty-of-fish/
 
 ### Setting up Environment
 
-Requires **Python 3.10+**. Create a virtual environment and install the two
+Requires Python 3.10, but we used 3.14. Create a virtual environment and install the two
 runtime dependencies (matplotlib for plots, pygame-ce for the GUIs):
 
 ```bash
@@ -107,9 +108,6 @@ pip install --upgrade pip
 pip install matplotlib pygame-ce
 ```
 
-> If you use [`uv`](https://docs.astral.sh/uv/) (this project was developed with
-> it): `uv venv && source .venv/bin/activate && uv pip install matplotlib pygame-ce`.
-
 The headless GA+RL run needs only matplotlib; `pygame-ce` is required for the
 `--watch` and `--play` GUIs.
 
@@ -118,24 +116,14 @@ The headless GA+RL run needs only matplotlib; `pygame-ce` is required for the
 Run everything as a module from the repo root (so the `src` package resolves):
 
 ```bash
-python -m src.main                       # headless: evolve + learn, save best genome
-python -m src.main --generations 50 --no-plots
 python -m src.main --watch               # GUI: watch the family evolve (grid of mini-oceans)
 python -m src.main --play                # GUI: control one shark in its own ocean
+python -m src.main                       # headless: evolve + learn, save best genome
+python -m src.main --generations 50 --no-plots
 ```
 
 Useful flags (see `python -m src.main --help`): `--population`, `--generations`,
 `--max-steps`, `--lives`, `--mutation-rate`, `--seed`, `--no-plots`.
-
-Each piece also runs on its own as a small demo:
-
-```bash
-python -m src.algorithms.genetic_algo            # GA against the analytical fitness only
-python -m src.simulation                         # bold vs. cautious shark, shared brain
-python -m src.environment.ocean                  # spawn an ocean, take a few steps
-python -m src.shark.shark                        # watch a pod age, breed, and die
-python src/algorithms/rl_algo/train_headless.py  # standalone RL training -> plot + CSV
-```
 
 Housekeeping via the Makefile (never touches `.venv/` or `.git/`):
 
@@ -145,5 +133,7 @@ make clean           # remove caches / bytecode / OS junk
 ```
 
 ---
+<sup><sub>AI Acknowledgement: AI tools were used to build this project's code base. </sub></sup>
 ## Made by
 Zoheb Akhtar, Abdurrahman Assaf, Zara Ceraj
+
