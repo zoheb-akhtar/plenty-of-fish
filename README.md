@@ -10,7 +10,7 @@ behaviour improve together.
 A shark lives on a tile grid (the `Ocean`) scattered with safe and poisonous
 fish of different sizes. Each step it can move, attack, or rest; it spends energy
 to move and dies if it starves or bites poison while weak. The goal is a family
-of sharks whose **traits** (size, speed, caution, aggression) and **behaviour**
+of sharks whose traits (size, speed, caution, aggression) and behaviour
 (when to hunt vs. hang back) together earn the most reward.
 
 Two algorithms tackle this on two different timescales and meet through behaviour:
@@ -25,14 +25,10 @@ Two algorithms tackle this on two different timescales and meet through behaviou
   traits — `size`, `speed`, `caution`, `aggression` — vary; the rest hold their
   defaults.
 
-The link is deliberate: **a genome never edits the Q-table.** Instead a shark's
-temperament *biases which action it picks* (`biased_action` in
-[`src/simulation.py`](src/simulation.py)) — a bold shark attacks more, a cautious
-one rests more — while the Q-update still learns the true value of whatever
-action was actually taken. A genome's fitness is simply the reward its biased
+A genome's fitness is simply the reward its biased
 behaviour earns, so the GA selects for temperaments that do well given what the
-shared brain has learned. The brain is created once and **persists across
-generations**, so over a run the bodies and the behaviour co-adapt.
+shared brain has learned. The brain is created once and persists across
+generations, so over a run the bodies and the behaviour co-adapt.
 
 ### Background/Importance
 
@@ -48,30 +44,9 @@ multi-agent RL.
 
 ### Sample Outputs
 
-**Headless run** (`python -m src.main`) prints a per-generation table of the best
-shark's evolvable traits and its fitness (reward earned in the `Ocean`):
+<img width="918" height="803" alt="Screenshot 2026-06-12 at 8 29 42 AM" src="https://github.com/user-attachments/assets/178e2723-9d06-4259-b476-8e415ca20c36" />
+<img width="919" height="810" alt="Screenshot 2026-06-12 at 8 29 52 AM" src="https://github.com/user-attachments/assets/bb990f74-cf48-489b-80bb-dba07db2f4d4" />
 
-```
-Gen |  Size |  Speed | Caution | Aggression | Fitness
-----+-------+--------+---------+------------+--------
-  1 | 6.940 | 10.644 |   0.923 |      0.842 | -1.5000
-  2 | 7.018 |  4.933 |   0.847 |      0.585 |  1.8000
-...
- 30 | 7.096 |  8.038 |   0.349 |      0.532 | 52.0667
-```
-
-…then prints the winning shark's full trait set:
-
-```
-Best shark found (judged by reward earned in the Ocean env):
-  size                  6.980 (evolved)
-  speed                 7.840 (evolved)
-  caution               0.531 (evolved)
-  gestation_period      12.000
-  aggression            0.588 (evolved)
-  field_of_perception   5.000
-  color_hue             205.000
-```
 
 Unless `--no-plots` is passed, matplotlib also shows each evolvable trait's
 trajectory and a best-vs-population-range fitness curve over the generations.
