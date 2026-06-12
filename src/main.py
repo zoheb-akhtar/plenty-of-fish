@@ -1,5 +1,7 @@
 """Plenty of Fish -- entry point that fits the GA and RL together.
 
+# Used Claude and Cursor to help me write this code.
+
 The genetic algorithm evolves shark genomes; a single shared reinforcement-
 learning brain learns how to behave in the ``Ocean`` env (each shark forages its
 own ocean); and each genome is scored by the reward its temperament earns once
