@@ -35,6 +35,7 @@ generations, so over a run the bodies and the behaviour co-adapt.
 The blue shark (Prionace glauca) is one of the most widely and highly fished sharks on Earth and is the only living member of its genus, so its persistence is entirely based on how well this  species can adapt to changing oceans [1]. In nature, adaptation and evolution run on two interleaved timescales; evolution slowly reshapes the body across generations, while learning rapidly reshapes behavior within a single life. In blue sharks, live young leave their mothers after birth and do not inherit instructions, but we wanted to approach this question with what if families could pass down data the way humans pass down stories through generations? 
 
 ### Sample Outputs
+Sample output after the command python -m src.main --watch, which shows you the GUI of the sharks hunting and their related metrics as they continue to reproduce. 
 
 <img width="918" height="803" alt="Screenshot 2026-06-12 at 8 29 42 AM" src="https://github.com/user-attachments/assets/178e2723-9d06-4259-b476-8e415ca20c36" />
 <img width="919" height="810" alt="Screenshot 2026-06-12 at 8 29 52 AM" src="https://github.com/user-attachments/assets/bb990f74-cf48-489b-80bb-dba07db2f4d4" />
@@ -43,13 +44,9 @@ The blue shark (Prionace glauca) is one of the most widely and highly fished sha
 Unless `--no-plots` is passed, matplotlib also shows each evolvable trait's
 trajectory and a best-vs-population-range fitness curve over the generations.
 
-**Watch GUI** (`--watch`) animates the colony foraging in a **shared ocean**:
+**Watch GUI** (`--watch`) animates the colony foraging in a shared ocean:
 the sharks compete for one depleting, self-replenishing fish pool, so food is a
-real constraint. Breeding is **food-gated** (only well-fed sharks reproduce, on a
-`gestation_period` cooldown), overcrowding **culls the weakest foragers** rather
-than random ones, and resting carries a small energy cost — together these keep
-the population near an emergent carrying capacity instead of a hard cap. Use
-**←/→** to page through the whole pod, **Space** to pause, and **M** for the live
+real constraint. **Space** to pause, and **M** for the live
 metrics panel. **Play GUI** (`--play`) lets you steer a single randomly-statted
 shark yourself. The standalone RL trainer also saves a learning curve to
 `src/algorithms/rl_algo/training_plot.png` and per-episode numbers to
