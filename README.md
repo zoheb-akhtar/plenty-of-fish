@@ -8,25 +8,25 @@ behaviour improve together.
 ## Problem Overview
 
 A shark lives on a tile grid (the `Ocean`) scattered with safe and poisonous
-fish of different sizes. Each step it can move, attack, or rest; it spends energy
+fish of different sizes. Each step, it can move, attack, or rest; it spends energy
 to move and dies if it starves or bites poison while weak. The goal is a family
 of sharks whose traits (size, speed, caution, aggression) and behaviour
 (when to hunt vs. hang back) together earn the most reward.
 
 Two algorithms tackle this on two different timescales and meet through behaviour:
 
-- **RL — within-life decisions.** A `FamilyRL` brain runs tabular Q-learning
+- **Reinforcement Learning.** A `FamilyRL` brain runs tabular Q-learning
   (epsilon-greedy, Bellman update). Every shark in the family reads and writes
   the *same* Q-table, so one shark's fatal poison bite teaches the whole family.
   Observations (energy + nearest fish) are bucketed into discrete states by
   `discretize()` before they touch the table.
-- **GA — who reproduces.** The GA evolves genomes (tournament selection +
+- **Genetic Algorithm.** The genetic algorithm evolves genomes (tournament selection +
   arithmetic crossover + Gaussian mutation, with elitism). Only the *evolvable*
   traits — `size`, `speed`, `caution`, `aggression` — vary; the rest hold their
   defaults.
 
 A genome's fitness is simply the reward its biased
-behaviour earns, so the GA selects for temperaments that do well given what the
+behaviour earns, so the genetic algorithm selects for temperaments that do well given what the
 shared brain has learned. The brain is created once and persists across
 generations, so over a run the bodies and the behaviour co-adapt.
 
