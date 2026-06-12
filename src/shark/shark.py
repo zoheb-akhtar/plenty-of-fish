@@ -21,16 +21,13 @@ from dataclasses import dataclass
 from .genome import SharkGenome
 from .traits import SHARK_TRAITS
 
-# Sharks live 15 birth cycles (read as "years"); on reaching this age they die.
+# Sharks die on reaching this age (birth cycles, read as "years").
 MAX_AGE_YEARS = 15
 
-# Sharks are sexually immature until this age -- no breeding before it. A shark
-# is also full-grown at this age (see ``Shark.size``), so maturity is one event.
+# Age of sexual maturity; also when a shark reaches full size (see ``Shark.size``).
 MIN_BREEDING_AGE_YEARS = 5
 
-# A newborn's body length as a fraction of its genetic (adult) size; it grows to
-# the full value by ``MIN_BREEDING_AGE_YEARS``. Juveniles are therefore smaller,
-# so they can only eat smaller prey and burn less energy than their genome's adult.
+# A newborn's length as a fraction of adult size; grows to full by MIN_BREEDING_AGE_YEARS.
 BIRTH_SIZE_FRACTION = 0.25
 
 
@@ -39,60 +36,44 @@ class Shark:
     """An individual shark: its genome plus age and alive/dead state."""
 
     genome: SharkGenome
-    age: int = 0          # completed birth cycles ("years"); newborns start at 0
+    age: int = 0          # completed birth cycles; newborns start at 0
     alive: bool = True
-    # How this shark's most recent foraging life went. The colony records these
-    # each cycle so reproduction and overcrowding can favour good foragers.
+    # Most recent foraging outcome; the colony uses these to favour good foragers.
     last_reward: float = 0.0
     last_eaten: int = 0
     bred_at_age: int = -1  # age at last breeding; -1 = never bred
 
+    # Only living sharks at or past MIN_BREEDING_AGE_YEARS can breed.
     @property
     def can_reproduce(self) -> bool:
-        """Only living sharks of breeding age reproduce.
-
-        A dead shark can't breed, and a shark younger than
-        ``MIN_BREEDING_AGE_YEARS`` is not yet sexually mature.
-        """
         return self.alive and self.age >= MIN_BREEDING_AGE_YEARS
 
+    # Current body length: adult size scaled from BIRTH_SIZE_FRACTION at age 0
+    # to full by MIN_BREEDING_AGE_YEARS, clamped to the size trait's range.
     @property
     def size(self) -> float:
-        """Effective body length right now: the genome's *adult* size scaled by age.
-
-        The genome carries a shark's adult length. A pup starts at
-        ``BIRTH_SIZE_FRACTION`` of it and grows linearly to the full value by
-        ``MIN_BREEDING_AGE_YEARS``; from maturity on it stays adult-sized. The
-        result is clamped to the size trait's legal range.
-        """
         adult = self.genome.size
         grown = min(1.0, self.age / max(1, MIN_BREEDING_AGE_YEARS))
         frac = BIRTH_SIZE_FRACTION + (1.0 - BIRTH_SIZE_FRACTION) * grown
         return SHARK_TRAITS["size"].clamp(adult * frac)
 
+    # Store the outcome of the cycle this shark just foraged.
     def record_life(self, reward: float, eaten: int) -> None:
-        """Store the outcome of the cycle this shark just foraged."""
         self.last_reward = reward
         self.last_eaten = eaten
 
+    # Has enough time passed since last breeding?
+    # gestation_period / gestation_divisor cycles must elapse between broods.
     def ready_to_breed(self, gestation_divisor: float) -> bool:
-        """Has enough time passed since this shark last bred?
-
-        The ``gestation_period`` trait (in "months") is converted to a whole
-        number of birth cycles by ``gestation_divisor`` -- so a longer gestation
-        means a shark breeds less often, a real evolutionary trade-off.
-        """
         interval = max(1, round(self.genome.gestation_period / gestation_divisor))
         return self.bred_at_age < 0 or (self.age - self.bred_at_age) >= interval
 
+    # Record that this shark bred at its current age (paces future broods).
     def mark_bred(self) -> None:
         self.bred_at_age = self.age
 
+    # Advance one cycle and die at MAX_AGE_YEARS (dead sharks stay dead).
     def grow_older(self) -> None:
-        """Advance one birth cycle; die on reaching ``MAX_AGE_YEARS``.
-
-        A shark that's already dead stays dead and doesn't keep counting.
-        """
         if not self.alive:
             return
         self.age += 1
@@ -100,10 +81,10 @@ class Shark:
             self.alive = False
 
 
+# Pick two distinct parents, each chosen with probability ~ its weight.
 def _weighted_pair(
     breeders: list[Shark], weights: list[float], rng: random.Random
 ) -> tuple[Shark, Shark]:
-    """Pick two distinct parents, each chosen with probability ~ its weight."""
     a = rng.choices(breeders, weights=weights, k=1)[0]
     for _ in range(8):  # resample until we get a different second parent
         b = rng.choices(breeders, weights=weights, k=1)[0]
@@ -114,6 +95,11 @@ def _weighted_pair(
     return a, b
 
 
+# Breed ``brood_size`` age-0 pups per two eligible sharks.
+# Optional flags add selection pressure: ``gestation_divisor`` spaces broods,
+# ``require_food`` keeps only fed sharks fertile, ``fitness_weighted`` draws
+# parents in proportion to foraging success. Each pup is its own crossover+
+# mutation, and bred sharks are marked so broods can be spaced out.
 def reproduce(
     population: list[Shark],
     rng: random.Random = random,
@@ -124,24 +110,6 @@ def reproduce(
     gestation_divisor: float | None = None,
     brood_size: int = 1,
 ) -> list[Shark]:
-    """Breed ``brood_size`` age-0 pups per two eligible sharks.
-
-    By default (all flags off, ``brood_size=1``) this is the simple rule --
-    shuffle the living and pair them, one pup per pair. The keyword flags add
-    selection pressure:
-
-    * ``gestation_divisor`` -- a shark only breeds if enough cycles have passed
-      since its last brood (see :meth:`Shark.ready_to_breed`).
-    * ``require_food`` -- only sharks that ate at least one fish last cycle are
-      fertile, so foraging success gates reproduction.
-    * ``fitness_weighted`` -- parents are drawn with probability proportional to
-      how well they foraged, so good hunters leave more offspring.
-    * ``brood_size`` -- pups produced per breeding pair. Each pup is its own
-      crossover+mutation of the pair, so a bigger brood means more genetic shots
-      per pairing, not clones.
-
-    Sharks that breed are marked so ``ready_to_breed`` can space out their broods.
-    """
     brood_size = max(1, brood_size)
     breeders = [s for s in population if s.can_reproduce]
     if gestation_divisor is not None:
@@ -155,9 +123,7 @@ def reproduce(
     n_pairs = len(breeders) // 2
 
     if fitness_weighted:
-        # Fertility favours good foragers: a shark's weight grows with the fish
-        # it ate and any positive reward it earned. The +1 keeps every fertile
-        # shark in the lottery so weak-but-fed sharks can still occasionally breed.
+        # Weight by fish eaten + positive reward; +1 keeps every fertile shark in the lottery.
         weights = [1.0 + 2.0 * s.last_eaten + max(0.0, s.last_reward) for s in breeders]
         for _ in range(n_pairs):
             a, b = _weighted_pair(breeders, weights, rng)
@@ -183,17 +149,13 @@ def reproduce(
     return pups
 
 
+# Run one birth cycle: living breed first, then all age and old ones die.
+# Returns survivors plus this cycle's pups.
 def advance_cycle(
     population: list[Shark],
     rng: random.Random = random,
     mutation_rate: float = 0.0,
 ) -> list[Shark]:
-    """Run one birth cycle and return the next population.
-
-    Order matters: the living breed *first* (so a shark gets a final breeding
-    season in the cycle it turns 15), then every shark ages a year and any that
-    reach ``MAX_AGE_YEARS`` die. Survivors plus this cycle's pups carry forward.
-    """
     pups = reproduce(population, rng, mutation_rate)
     for shark in population:
         shark.grow_older()
@@ -202,8 +164,7 @@ def advance_cycle(
 
 
 if __name__ == "__main__":
-    # Watch a starter pod live out several cycles: births, ageing, and deaths.
-    # Seeding ages randomly means deaths show up from the very first cycles.
+    # Watch a starter pod live several cycles; random start ages so deaths appear early.
     rng = random.Random(0)
     pop = [
         Shark(SharkGenome.random_evolvable(rng), age=rng.randrange(MAX_AGE_YEARS))

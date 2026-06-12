@@ -1,19 +1,12 @@
-"""Plenty of Fish -- entry point that fits the GA and RL together.
+"""Plenty of Fish -- entry point fitting the GA and RL together.
 
-# Used Claude and Cursor to help me write this code.
-
-The genetic algorithm evolves shark genomes; a single shared reinforcement-
-learning brain learns how to behave in the ``Ocean`` env (each shark forages its
-own ocean); and each genome is scored by the reward its temperament earns once
-the brain has learned (see ``src.simulation``). Bodies and behaviour improve
-together.
-
+The GA evolves shark genomes; one shared RL brain learns to behave in the Ocean;
+each genome is scored by the reward its temperament earns (see ``src.simulation``).
 Run from the repo root:
 
     python -m src.main                 # headless: evolve + learn
-    python -m src.main --generations 50 --no-plots
-    python -m src.main --watch         # GUI: watch the family evolve (grid of mini-oceans)
-    python -m src.main --play          # GUI: control one shark in its own ocean
+    python -m src.main --watch         # GUI: watch the family evolve
+    python -m src.main --play          # GUI: control one shark
 """
 from __future__ import annotations
 
@@ -27,16 +20,16 @@ from src.environment.config import DEFAULT_CONFIG
 from src.shark import SHARK_TRAITS, SharkGenome
 from src.simulation import population_fitness
 
-# --population is shared by both modes but they want different defaults, so the
-# flag defaults to None and each mode falls back to its own sensible size.
+# --population is shared by both modes, so it defaults to None and each mode
+# falls back to its own sensible size.
 DEFAULT_POPULATION = 30
 
 
 def _annealing_brain(generations: int) -> FamilyRL:
     """A family brain whose epsilon decays from ~1.0 to its floor over the run.
 
-    ``population_fitness`` steps the decay once per generation, so we size the
-    decay to the generation budget: explore early, exploit what's learned later.
+    Sized to the generation budget (decay steps once per generation): explore
+    early, exploit later.
     """
     brain = FamilyRL()
     if generations > 1:

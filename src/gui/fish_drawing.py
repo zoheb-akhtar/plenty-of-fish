@@ -1,7 +1,4 @@
-"""Fish sprites for the ocean GUIs.
-
-Safe fish are green; poisonous fish are purple and carry a ``!`` marker.
-"""
+"""Fish sprites for the ocean GUIs: safe fish green, poisonous purple with a ``!``."""
 
 from __future__ import annotations
 
@@ -16,13 +13,14 @@ SIZE_SCALE = {"small": 0.18, "medium": 0.26, "large": 0.34}
 _FONT_CACHE: dict[int, pygame.font.Font] = {}
 
 
+# Cache the poison-marker font by size (avoid rebuilding it every frame).
 def _marker_font(size: int) -> pygame.font.Font:
-    """Cache the poison-marker font by size (avoid rebuilding it every frame)."""
     if size not in _FONT_CACHE:
         _FONT_CACHE[size] = pygame.font.SysFont(None, size, bold=True)
     return _FONT_CACHE[size]
 
 
+# Draw one fish centred at ``center`` (pixels) on ``surface``, scaled by ``size``.
 def draw_fish(
     surface: pygame.Surface,
     kind: str,
@@ -30,7 +28,6 @@ def draw_fish(
     tile: int,
     size: str = "medium",
 ) -> None:
-    """Draw one fish centred at ``center`` (pixels) on ``surface``, scaled by ``size``."""
     cx, cy = center
     color = SAFE if kind == "safe" else POISON
     r = max(3, int(tile * SIZE_SCALE.get(size, 0.26)))

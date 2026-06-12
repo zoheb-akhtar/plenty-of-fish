@@ -1,7 +1,7 @@
 """
 Shark trait definitions for the evolution simulation.
 
-    Attributes per trait 
+    Attributes per trait
     ----------
     name: identifier used as the genome key and GA gene label.
     default: value used when a shark is built without evolution.
@@ -37,30 +37,26 @@ class TraitSpec:
     unit: str = ""
     description: str = ""
 
+    # Width of the legal range (max - min).
     @property
     def span(self) -> float:
         return self.max_value - self.min_value
 
+    # Force ``value`` into the legal range.
     def clamp(self, value: float) -> float:
-        """Force ``value`` into the legal range."""
         return max(self.min_value, min(self.max_value, value))
 
+    # Draw a fresh uniform-random value inside the range.
     def random_value(self, rng: random.Random = random) -> float:
-        """Draw a fresh uniform-random value inside the range."""
         return rng.uniform(self.min_value, self.max_value)
 
+    # Nudge ``value`` by a Gaussian step scaled to this trait, then clamp.
     def mutate(self, value: float, rng: random.Random = random) -> float:
-        """Nudge ``value`` by a Gaussian step scaled to this trait, then clamp."""
         return self.clamp(value + rng.gauss(0.0, self.mutation_sigma))
 
 
-# ---------------------------------------------------------------------------
-# The shark trait registry.
-#
-# Order matters: it fixes the order of genes in the GA vector. To add a trait,
-# append a TraitSpec here -- nothing else needs to change. Defaults and bounds
-# are starting points tuned for a tile-based ocean; tweak freely.
-# ---------------------------------------------------------------------------
+# Shark trait registry. Insertion order fixes gene order in the GA vector;
+# append a TraitSpec to add a trait. Defaults/bounds are tunable starting points.
 _TRAIT_LIST: list[TraitSpec] = [
     TraitSpec(
         name="size",
@@ -147,11 +143,12 @@ SHARK_TRAITS: dict[str, TraitSpec] = {spec.name: spec for spec in _TRAIT_LIST}
 # ---------------------------------------------------------------------------
 # Registry helpers
 # ---------------------------------------------------------------------------
+# Names of the genes the GA currently mutates/crosses, in vector order.
 def evolvable_traits() -> list[str]:
     return [name for name, spec in SHARK_TRAITS.items() if spec.evolvable]
 
 
+# Convert a ``color_hue`` value (0-360) to an 0-255 RGB tuple for pygame.
 def color_rgb(hue: float) -> tuple[int, int, int]:
-    """Convert a ``color_hue`` value (0-360) to an 0-255 RGB tuple for pygame."""
     r, g, b = colorsys.hsv_to_rgb((hue % 360) / 360.0, 0.55, 0.75)
     return (int(r * 255), int(g * 255), int(b * 255))

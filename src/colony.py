@@ -1,23 +1,9 @@
-"""Headless colony simulation: the shared-ocean ecology that Watch mode *shows*.
+"""Headless colony simulation: the shared-ocean ecology that Watch mode shows.
 
-Watch mode (:mod:`src.gui.watch_gui`) renders a colony foraging ONE shared,
-depleting ocean, breeding by foraging success, ageing, and culling overcrowding.
-This module runs that **exact same lifecycle headlessly** so experiments can
-*measure* it -- no pygame, no drawing, just the dynamics.
-
-It is the ecological counterpart to :func:`src.simulation.population_fitness`,
-which scores each genome alone in its *own* ocean. Here every shark competes in
-one shared pool, so a fish eaten by one is gone for the rest -- the selection
-pressure that makes the watch-mode demo interesting becomes something you can
-chart over thousands of cycles.
-
-The loop below is intentionally a 1:1 mirror of
-``WatchGUI._start_cycle`` / ``_tick`` / ``_end_cycle`` with the rendering removed,
-so the headless numbers reflect what the GUI would do.
-
-Run a quick smoke test from the repo root::
-
-    python -m src.colony
+Runs the exact Watch-mode lifecycle without pygame so experiments can measure it:
+a colony forages ONE shared, depleting ocean, breeds by foraging success, ages,
+and culls overcrowding. The loop mirrors ``WatchGUI._start_cycle``/``_tick``/
+``_end_cycle`` with rendering removed. Smoke test: ``python -m src.colony``.
 """
 from __future__ import annotations
 
@@ -34,10 +20,9 @@ from src.simulation import biased_action, run_life
 
 
 def _warmup_brain(brain: FamilyRL, config: EnvConfig, rng: random.Random) -> None:
-    """Teach the shared brain on a default shark so the founding pod can survive.
+    """Pre-train the shared brain on a default shark so the founding pod survives.
 
-    A cold (fully exploring) brain dies foraging almost every time and the colony
-    goes extinct in a cycle or two; this mirrors ``WatchGUI._warmup_brain``.
+    A cold brain dies foraging and the colony goes extinct; mirrors ``WatchGUI._warmup_brain``.
     """
     lives = config.watch_brain_warmup_lives
     if lives <= 0:
@@ -55,13 +40,10 @@ def _forage_one_cycle(
     config: EnvConfig,
     rng: random.Random,
 ) -> tuple[list[Ocean], list[float]]:
-    """Run one cycle of *interleaved* foraging in a shared pool; return envs + rewards.
+    """Run one cycle of interleaved foraging in a shared pool; return envs + rewards.
 
-    Every shark gets its own ``Ocean`` (its own position/energy), but when
-    ``watch_shared_fish_pool`` is on they all share one ``fishes`` list, so a fish
-    eaten by one shark is gone for all of them. Each step, every still-living shark
-    takes one action; then the shared pool drifts/respawns once -- exactly the
-    cadence of ``WatchGUI._tick``.
+    Every shark has its own ``Ocean`` but (with ``watch_shared_fish_pool``) shares
+    one fish list. Each step every living shark acts, then the pool drifts/respawns once.
     """
     envs = [
         Ocean(config, genome=s.genome, rng=rng, body_size=s.size)
@@ -148,8 +130,7 @@ def _advance_population(
     survivors = [s for s in population if s.alive]
     next_pop = survivors + pups
 
-    # Carrying capacity: overcrowding culls the weakest foragers first; newborn
-    # pups (no foraging record yet) are spared this cycle.
+    # Overcrowding culls the weakest foragers first; newborn pups are spared.
     cap = config.watch_carrying_capacity
     culled = max(0, len(next_pop) - cap)
     if culled:
@@ -180,10 +161,8 @@ def run_colony(
 ) -> dict:
     """Evolve a shark colony in a shared, competitive ocean for ``cycles`` cycles.
 
-    Returns a results dict (the colony analogue of
-    :func:`experiments.run_experiment.run_experiment`) capturing per-cycle
-    population, fitness, and trait history plus the trained brain -- ready for
-    pickling and reporting.
+    Returns a results dict (per-cycle population/fitness/trait history plus the
+    trained brain) ready for pickling and reporting.
     """
     rng = random.Random(seed)
     cull_rng = random.Random(seed + 1)  # kept off the sim stream, like the GUI's view_rng

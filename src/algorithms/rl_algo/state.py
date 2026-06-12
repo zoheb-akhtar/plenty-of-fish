@@ -46,7 +46,7 @@ def _bucket_direction(dx: int, dy: int, exists: bool) -> str:
 def _bucket_fish_type(fish_type: str | None, exists: bool) -> str:
     if not exists or fish_type is None:
         return "none"
-    return fish_type  # "safe", "poisonous", "strong" later
+    return fish_type  # "safe" or "poisonous"
 
 
 def _bucket_size(size: str | None, exists: bool) -> str:
